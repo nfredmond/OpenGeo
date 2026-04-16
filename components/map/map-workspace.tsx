@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MapCanvas, type MapCanvasHandle } from "./map-canvas";
 import { LayerPanel, type ClientLayer } from "./layer-panel";
@@ -85,6 +86,12 @@ export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
             <p className="text-xs text-[color:var(--muted)]">
               drone-to-insight workspace
             </p>
+            <Link
+              href="/projects"
+              className="mt-1 inline-block text-[10px] text-[color:var(--muted)] underline-offset-2 hover:text-[color:var(--foreground)] hover:underline"
+            >
+              ← Projects
+            </Link>
           </div>
           {userEmail && (
             <form action="/api/auth/signout" method="post" className="flex flex-col items-end gap-1">

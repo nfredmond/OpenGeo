@@ -17,11 +17,16 @@ export default function Home() {
         </p>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card
+          title="Projects"
+          href="/projects"
+          description="Group datasets, flights, and layers by planning project."
+        />
         <Card
           title="Map viewer"
           href="/map"
-          description="Browse and edit vector layers on a MapLibre-rendered map."
+          description="Browse and edit vector + raster layers on a MapLibre map."
         />
         <Card
           title="Upload data"
@@ -31,7 +36,7 @@ export default function Home() {
         <Card
           title="Ask a question"
           href="/map"
-          description="Natural language → PostGIS query, results rendered on the map."
+          description="Natural language → PostGIS query, results on the map."
         />
       </section>
 
