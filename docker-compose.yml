@@ -3,6 +3,7 @@
 # - martin: Rust vector tile server; reads PostGIS directly on :3001.
 # - titiler: raster tile server for COGs on :8000.
 # - pg_featureserv: OGC API Features on :9000.
+# - nodeodm: OpenDroneMap processing node on :3002 (host) -> 3000 (container).
 #
 # Bring up: `docker compose up -d`
 # Tear down (preserve volumes): `docker compose down`
@@ -61,5 +62,15 @@ services:
     ports:
       - "9000:9000"
 
+  nodeodm:
+    image: opendronemap/nodeodm:latest
+    container_name: opengeo-nodeodm
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    volumes:
+      - nodeodm-data:/var/www/data
+
 volumes:
   pgdata:
+  nodeodm-data:
