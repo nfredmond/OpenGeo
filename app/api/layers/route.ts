@@ -29,6 +29,7 @@ export const GET = withRoute("layers.list", async (req) => {
       name,
       geometry_kind,
       feature_count,
+      style,
       updated_at,
       dataset:datasets!inner (
         id,

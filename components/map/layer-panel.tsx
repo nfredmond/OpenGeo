@@ -2,6 +2,7 @@
 
 import { Eye, EyeOff, Layers, Palette, Sparkles, Target, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { LayerStylePatch } from "./map-canvas";
 
 export type ClientLayer =
   | {
@@ -13,6 +14,7 @@ export type ClientLayer =
       kind?: "vector";
       data: GeoJSON.FeatureCollection;
       featureCount: number;
+      style?: LayerStylePatch | null;
     }
   | {
       id: string;
@@ -25,6 +27,7 @@ export type ClientLayer =
       sourceLayer: string;
       geometryKind: string;
       featureCount: number;
+      style?: LayerStylePatch | null;
     }
   | {
       id: string;
@@ -35,6 +38,7 @@ export type ClientLayer =
       kind: "raster";
       cogUrl: string;
       featureCount: number;
+      style?: LayerStylePatch | null;
     };
 
 export function LayerPanel({

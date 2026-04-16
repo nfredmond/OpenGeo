@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MapCanvas, type MapCanvasHandle } from "./map-canvas";
+import { MapCanvas, type MapCanvasHandle, type LayerStylePatch } from "./map-canvas";
 import { LayerPanel, type ClientLayer } from "./layer-panel";
 import { AiQueryPanel } from "./ai-query-panel";
 import { UploadPanel } from "./upload-panel";
@@ -18,6 +18,7 @@ type RemoteLayerSummary = {
   name: string;
   geometry_kind: string;
   feature_count: number;
+  style?: LayerStylePatch | null;
 };
 
 type RemoteOrthomosaic = {
@@ -74,6 +75,9 @@ export function MapWorkspace({
       });
     } else {
       mapRef.current?.addGeoJsonLayer(layer);
+    }
+    if (layer.style) {
+      mapRef.current?.setLayerStyle(layer.id, layer.style);
     }
   }, []);
 
@@ -252,6 +256,7 @@ async function hydrateVectorLayers(
         sourceLayer: "layer",
         geometryKind: remote.geometry_kind,
         featureCount: remote.feature_count,
+        style: remote.style ?? null,
       });
       continue;
     }
@@ -272,6 +277,7 @@ async function hydrateVectorLayers(
       kind: "vector",
       data: payload.featureCollection,
       featureCount: remote.feature_count,
+      style: remote.style ?? null,
     });
   }
 }

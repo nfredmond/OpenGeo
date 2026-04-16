@@ -24,7 +24,7 @@ export const GET = withRoute<{ id: string }>("layers.get", async (_req, ctx) => 
   const { data: layer, error: layerErr } = await supabase
     .schema("opengeo")
     .from("layers")
-    .select("id, name, geometry_kind, feature_count")
+    .select("id, name, geometry_kind, feature_count, style")
     .eq("id", parsed.data.id)
     .maybeSingle();
 
