@@ -7,6 +7,8 @@ import { LayerPanel, type ClientLayer } from "./layer-panel";
 import { AiQueryPanel } from "./ai-query-panel";
 import { UploadPanel } from "./upload-panel";
 import { OrthoPanel } from "./ortho-panel";
+import { BasemapPicker } from "./basemap-picker";
+import { defaultBasemapId, type BasemapId } from "./basemaps";
 import { pickColor } from "./colors";
 import { publicEnv } from "@/lib/public-env";
 
@@ -40,7 +42,13 @@ export function MapWorkspace({
 }) {
   const [layers, setLayers] = useState<ClientLayer[]>([]);
   const [hydrating, setHydrating] = useState(true);
+  const [basemap, setBasemap] = useState<BasemapId>(defaultBasemapId());
   const mapRef = useRef<MapCanvasHandle>(null);
+
+  const changeBasemap = useCallback((id: BasemapId) => {
+    setBasemap(id);
+    mapRef.current?.setBasemap(id);
+  }, []);
 
   const addLayer = useCallback((layer: ClientLayer) => {
     setLayers((prev) => [...prev, layer]);
@@ -184,6 +192,7 @@ export function MapWorkspace({
 
       <main className="relative flex-1">
         <MapCanvas ref={mapRef} />
+        <BasemapPicker current={basemap} onChange={changeBasemap} />
       </main>
     </>
   );

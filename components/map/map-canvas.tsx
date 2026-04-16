@@ -9,7 +9,7 @@ import {
   useRef,
 } from "react";
 import type { ClientLayer } from "./layer-panel";
-import { publicEnv } from "@/lib/public-env";
+import { defaultBasemapId, listBasemaps, type BasemapId } from "./basemaps";
 
 type VectorClientLayer = Extract<ClientLayer, { kind?: "vector" }>;
 
@@ -20,6 +20,7 @@ export type MapCanvasHandle = {
   toggleLayer: (id: string, visible: boolean) => void;
   removeLayer: (id: string) => void;
   fitLayer: (id: string) => void;
+  setBasemap: (id: BasemapId) => void;
 };
 
 export type RasterLayer = {
@@ -44,28 +45,19 @@ export type VectorTileLayer = {
   maxzoom?: number;
 };
 
-const FALLBACK_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-  sources: {
-    basemap: {
-      type: "raster",
-      tiles: [
-        "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-      ],
-      tileSize: 256,
-      attribution:
-        '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    },
-  },
-  layers: [
-    { id: "basemap", type: "raster", source: "basemap" },
-  ],
-};
+// Registry entries — we stash every "apply" we make so we can replay them
+// after a setStyle call (which wipes non-basemap layers). Keyed by the
+// caller-provided layer id so re-adding the same layer is a no-op.
+type Registered =
+  | { kind: "geojson"; layer: VectorClientLayer }
+  | { kind: "raster"; layer: RasterLayer }
+  | { kind: "vector-tile"; layer: VectorTileLayer };
 
 export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const registryRef = useRef<Map<string, Registered>>(new Map());
+  const hiddenRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -73,24 +65,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     const protocol = new Protocol();
     maplibregl.addProtocol("pmtiles", protocol.tile);
 
-    const style: maplibregl.StyleSpecification = publicEnv
-      .NEXT_PUBLIC_BASEMAP_PMTILES_URL
-      ? {
-          version: 8,
-          glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-          sources: {
-            basemap: {
-              type: "vector",
-              url: `pmtiles://${publicEnv.NEXT_PUBLIC_BASEMAP_PMTILES_URL}`,
-            },
-          },
-          layers: [],
-        }
-      : FALLBACK_STYLE;
+    const initial = listBasemaps().find((b) => b.id === defaultBasemapId())
+      ?? listBasemaps()[0];
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style,
+      style: initial.style,
       center: [-121.06, 39.22], // Grass Valley, CA — Nat Ford Planning HQ region.
       zoom: 10,
       attributionControl: { compact: true },
@@ -111,16 +91,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     addGeoJsonLayer(layer) {
       const map = mapRef.current;
       if (!map) return;
-      const apply = () => {
-        if (map.getSource(layer.id)) return;
-        map.addSource(layer.id, {
-          type: "geojson",
-          data: layer.data,
-        });
-        const geomType = detectGeometryType(layer.data);
-        addStyleLayers(map, layer.id, geomType, layer.color);
-        fitToData(map, layer.data);
-      };
+      registryRef.current.set(layer.id, { kind: "geojson", layer });
+      const apply = () => applyGeoJsonLayer(map, layer, hiddenRef.current);
       if (map.isStyleLoaded()) apply();
       else map.once("load", apply);
     },
@@ -128,26 +100,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     addRasterLayer(raster) {
       const map = mapRef.current;
       if (!map) return;
-      const apply = () => {
-        if (map.getSource(raster.id)) return;
-        map.addSource(raster.id, {
-          type: "raster",
-          tiles: [raster.tilesUrlTemplate],
-          tileSize: 256,
-          minzoom: raster.minzoom ?? 0,
-          maxzoom: raster.maxzoom ?? 22,
-          attribution: raster.attribution,
-        });
-        map.addLayer({
-          id: raster.id + "-raster",
-          type: "raster",
-          source: raster.id,
-          paint: { "raster-opacity": 0.95 },
-        });
-        if (raster.bbox) {
-          map.fitBounds(raster.bbox as LngLatBoundsLike, { padding: 48, duration: 600 });
-        }
-      };
+      registryRef.current.set(raster.id, { kind: "raster", layer: raster });
+      const apply = () => applyRasterLayer(map, raster, hiddenRef.current);
       if (map.isStyleLoaded()) apply();
       else map.once("load", apply);
     },
@@ -155,19 +109,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     addVectorTileLayer(layer) {
       const map = mapRef.current;
       if (!map) return;
-      const apply = () => {
-        if (map.getSource(layer.id)) return;
-        map.addSource(layer.id, {
-          type: "vector",
-          tiles: [layer.tilesUrlTemplate],
-          minzoom: layer.minzoom ?? 0,
-          maxzoom: layer.maxzoom ?? 22,
-        });
-        addVectorTileStyleLayers(map, layer);
-        if (layer.bbox) {
-          map.fitBounds(layer.bbox as LngLatBoundsLike, { padding: 48, duration: 600 });
-        }
-      };
+      registryRef.current.set(layer.id, { kind: "vector-tile", layer });
+      const apply = () => applyVectorTileLayer(map, layer, hiddenRef.current);
       if (map.isStyleLoaded()) apply();
       else map.once("load", apply);
     },
@@ -175,6 +118,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     toggleLayer(id, visible) {
       const map = mapRef.current;
       if (!map) return;
+      if (visible) hiddenRef.current.delete(id);
+      else hiddenRef.current.add(id);
       for (const suffix of ["-fill", "-line", "-circle", "-raster"]) {
         const layerId = id + suffix;
         if (map.getLayer(layerId)) {
@@ -186,6 +131,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     removeLayer(id) {
       const map = mapRef.current;
       if (!map) return;
+      registryRef.current.delete(id);
+      hiddenRef.current.delete(id);
       for (const suffix of ["-fill", "-line", "-circle", "-raster"]) {
         const layerId = id + suffix;
         if (map.getLayer(layerId)) map.removeLayer(layerId);
@@ -202,10 +149,100 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
       const data = source._data as GeoJSON.FeatureCollection | undefined;
       if (data) fitToData(map, data);
     },
+
+    setBasemap(id) {
+      const map = mapRef.current;
+      if (!map) return;
+      const basemap = listBasemaps().find((b) => b.id === id);
+      if (!basemap || !basemap.enabled) return;
+
+      // setStyle wipes every non-basemap layer + source. Replay the registry
+      // once the new basemap is ready. `diff: false` ensures a clean rebuild.
+      map.setStyle(basemap.style, { diff: false });
+      map.once("styledata", () => {
+        for (const entry of registryRef.current.values()) {
+          if (entry.kind === "geojson") {
+            applyGeoJsonLayer(map, entry.layer, hiddenRef.current);
+          } else if (entry.kind === "raster") {
+            applyRasterLayer(map, entry.layer, hiddenRef.current);
+          } else {
+            applyVectorTileLayer(map, entry.layer, hiddenRef.current);
+          }
+        }
+      });
+    },
   }));
 
   return <div ref={containerRef} className="absolute inset-0" />;
 });
+
+// ---- apply functions --------------------------------------------------------
+
+function applyGeoJsonLayer(
+  map: maplibregl.Map,
+  layer: VectorClientLayer,
+  hidden: Set<string>,
+) {
+  if (map.getSource(layer.id)) return;
+  map.addSource(layer.id, { type: "geojson", data: layer.data });
+  const geomType = detectGeometryType(layer.data);
+  addStyleLayers(map, layer.id, geomType, layer.color);
+  applyVisibility(map, layer.id, hidden);
+  fitToData(map, layer.data);
+}
+
+function applyRasterLayer(
+  map: maplibregl.Map,
+  raster: RasterLayer,
+  hidden: Set<string>,
+) {
+  if (map.getSource(raster.id)) return;
+  map.addSource(raster.id, {
+    type: "raster",
+    tiles: [raster.tilesUrlTemplate],
+    tileSize: 256,
+    minzoom: raster.minzoom ?? 0,
+    maxzoom: raster.maxzoom ?? 22,
+    attribution: raster.attribution,
+  });
+  map.addLayer({
+    id: raster.id + "-raster",
+    type: "raster",
+    source: raster.id,
+    paint: { "raster-opacity": 0.95 },
+  });
+  applyVisibility(map, raster.id, hidden);
+  if (raster.bbox) {
+    map.fitBounds(raster.bbox as LngLatBoundsLike, { padding: 48, duration: 600 });
+  }
+}
+
+function applyVectorTileLayer(
+  map: maplibregl.Map,
+  layer: VectorTileLayer,
+  hidden: Set<string>,
+) {
+  if (map.getSource(layer.id)) return;
+  map.addSource(layer.id, {
+    type: "vector",
+    tiles: [layer.tilesUrlTemplate],
+    minzoom: layer.minzoom ?? 0,
+    maxzoom: layer.maxzoom ?? 22,
+  });
+  addVectorTileStyleLayers(map, layer);
+  applyVisibility(map, layer.id, hidden);
+  if (layer.bbox) {
+    map.fitBounds(layer.bbox as LngLatBoundsLike, { padding: 48, duration: 600 });
+  }
+}
+
+function applyVisibility(map: maplibregl.Map, id: string, hidden: Set<string>) {
+  if (!hidden.has(id)) return;
+  for (const suffix of ["-fill", "-line", "-circle", "-raster"]) {
+    const layerId = id + suffix;
+    if (map.getLayer(layerId)) map.setLayoutProperty(layerId, "visibility", "none");
+  }
+}
 
 function detectGeometryType(fc: GeoJSON.FeatureCollection): string {
   const first = fc.features[0]?.geometry?.type ?? "Point";
