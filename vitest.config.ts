@@ -8,6 +8,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(here, "./"),
+      // Next.js `server-only` throws if bundled for the client. In Node-based
+      // tests we just want a no-op so server modules can be imported freely.
+      "server-only": resolve(here, "./tests/stubs/server-only.ts"),
     },
   },
   test: {
