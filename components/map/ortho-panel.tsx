@@ -14,6 +14,7 @@ type PendingOdm = {
   flightId: string;
   displayName: string;
   imageCount: number;
+  workflowRunId: string | null;
 };
 
 // Two paths to register an orthomosaic:
@@ -104,6 +105,7 @@ export function OrthoPanel({
         const submitBody = (await submitRes.json()) as {
           ok: boolean;
           orthomosaicId?: string;
+          workflowRunId?: string | null;
           error?: string;
         };
         if (!submitRes.ok || !submitBody.ok || !submitBody.orthomosaicId) {
@@ -116,6 +118,7 @@ export function OrthoPanel({
             flightId,
             displayName,
             imageCount: files.length,
+            workflowRunId: submitBody.workflowRunId ?? null,
           },
         ]);
         setName("");
@@ -347,6 +350,7 @@ function PendingRow({
       </div>
       <div className="mt-1 flex items-center justify-between gap-2 text-[9px] text-[color:var(--muted)]">
         <span>{entry.imageCount} images</span>
+        {entry.workflowRunId && <WorkflowRunChip runId={entry.workflowRunId} />}
       </div>
       {typeof progress === "number" && status !== "ready" && status !== "failed" && (
         <div className="mt-1 h-1 w-full overflow-hidden rounded bg-[color:var(--border)]">
@@ -357,6 +361,32 @@ function PendingRow({
         </div>
       )}
     </li>
+  );
+}
+
+// Shows a truncated run id. Click copies `npx workflow web <id>` so operators
+// can pivot from the pending row straight into the durable-run trace.
+function WorkflowRunChip({ runId }: { runId: string }) {
+  const [copied, setCopied] = useState(false);
+  const short = runId.length > 10 ? `${runId.slice(0, 8)}…` : runId;
+  return (
+    <button
+      type="button"
+      title={`Copy: npx workflow web ${runId}`}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(`npx workflow web ${runId}`);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // Clipboard may be unavailable in non-secure contexts; fall back
+          // to a no-op rather than surfacing an error for a nice-to-have.
+        }
+      }}
+      className="rounded border border-[color:var(--border)] px-1 py-0.5 font-mono text-[9px] text-[color:var(--muted)] hover:border-[color:var(--accent)] hover:text-[color:var(--foreground)]"
+    >
+      {copied ? "copied" : `run · ${short}`}
+    </button>
   );
 }
 

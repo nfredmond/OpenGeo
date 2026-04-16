@@ -144,6 +144,17 @@ export const POST = withRoute<{ id: string }>("flights.odm.submit", async (req, 
     try {
       const run = await start(orthomosaicPipelineWorkflow, [ortho.id]);
       workflowRunId = run.runId;
+      // Best-effort persist so operators can pivot from a stuck row to the
+      // workflow trace without digging through logs. If this fails we keep
+      // the in-memory value and return it in the response anyway.
+      const { error: runIdErr } = await supabase
+        .schema("opengeo")
+        .from("orthomosaics")
+        .update({ workflow_run_id: run.runId })
+        .eq("id", ortho.id);
+      if (runIdErr) {
+        console.error(`failed to persist workflow_run_id for ortho ${ortho.id}:`, runIdErr);
+      }
     } catch (e) {
       console.error(`failed to start workflow for ortho ${ortho.id}:`, e);
     }
