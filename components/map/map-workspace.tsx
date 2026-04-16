@@ -8,6 +8,7 @@ import { AiQueryPanel } from "./ai-query-panel";
 import { UploadPanel } from "./upload-panel";
 import { OrthoPanel } from "./ortho-panel";
 import { BasemapPicker } from "./basemap-picker";
+import { StyleEditor } from "./style-editor";
 import { defaultBasemapId, type BasemapId } from "./basemaps";
 import { pickColor } from "./colors";
 import { publicEnv } from "@/lib/public-env";
@@ -43,6 +44,7 @@ export function MapWorkspace({
   const [layers, setLayers] = useState<ClientLayer[]>([]);
   const [hydrating, setHydrating] = useState(true);
   const [basemap, setBasemap] = useState<BasemapId>(defaultBasemapId());
+  const [editingLayer, setEditingLayer] = useState<ClientLayer | null>(null);
   const mapRef = useRef<MapCanvasHandle>(null);
 
   const changeBasemap = useCallback((id: BasemapId) => {
@@ -185,6 +187,7 @@ export function MapWorkspace({
           onRemove={removeLayer}
           onFocus={(id) => mapRef.current?.fitLayer(id)}
           onExtract={extractFromOrtho}
+          onEditStyle={setEditingLayer}
         />
 
         <AiQueryPanel onLayerAdded={addLayer} />
@@ -194,6 +197,26 @@ export function MapWorkspace({
         <MapCanvas ref={mapRef} />
         <BasemapPicker current={basemap} onChange={changeBasemap} />
       </main>
+
+      {editingLayer && (
+        <StyleEditor
+          layer={editingLayer}
+          onApply={(patch) => mapRef.current?.setLayerStyle(editingLayer.id, patch)}
+          onSave={async (patch) => {
+            const res = await fetch(`/api/layers/${editingLayer.id}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ style: patch }),
+            });
+            if (!res.ok) {
+              const body = (await res.json().catch(() => ({}))) as { error?: string };
+              throw new Error(body.error ?? `HTTP ${res.status}`);
+            }
+            mapRef.current?.setLayerStyle(editingLayer.id, patch);
+          }}
+          onClose={() => setEditingLayer(null)}
+        />
+      )}
     </>
   );
 }

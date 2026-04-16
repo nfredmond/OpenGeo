@@ -13,6 +13,11 @@ import { defaultBasemapId, listBasemaps, type BasemapId } from "./basemaps";
 
 type VectorClientLayer = Extract<ClientLayer, { kind?: "vector" }>;
 
+export type LayerStylePatch = {
+  paint?: Record<string, unknown>;
+  layout?: Record<string, unknown>;
+};
+
 export type MapCanvasHandle = {
   addGeoJsonLayer: (layer: VectorClientLayer) => void;
   addVectorTileLayer: (layer: VectorTileLayer) => void;
@@ -21,6 +26,7 @@ export type MapCanvasHandle = {
   removeLayer: (id: string) => void;
   fitLayer: (id: string) => void;
   setBasemap: (id: BasemapId) => void;
+  setLayerStyle: (id: string, patch: LayerStylePatch) => void;
 };
 
 export type RasterLayer = {
@@ -58,6 +64,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
   const mapRef = useRef<maplibregl.Map | null>(null);
   const registryRef = useRef<Map<string, Registered>>(new Map());
   const hiddenRef = useRef<Set<string>>(new Set());
+  const styleRegistryRef = useRef<Map<string, LayerStylePatch>>(new Map());
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -150,6 +157,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
       if (data) fitToData(map, data);
     },
 
+    setLayerStyle(id, patch) {
+      const map = mapRef.current;
+      if (!map) return;
+      styleRegistryRef.current.set(id, patch);
+      applyLayerStylePatch(map, id, patch);
+    },
+
     setBasemap(id) {
       const map = mapRef.current;
       if (!map) return;
@@ -168,6 +182,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
           } else {
             applyVectorTileLayer(map, entry.layer, hiddenRef.current);
           }
+          const patch = styleRegistryRef.current.get(entry.layer.id);
+          if (patch) applyLayerStylePatch(map, entry.layer.id, patch);
         }
       });
     },
@@ -233,6 +249,36 @@ function applyVectorTileLayer(
   applyVisibility(map, layer.id, hidden);
   if (layer.bbox) {
     map.fitBounds(layer.bbox as LngLatBoundsLike, { padding: 48, duration: 600 });
+  }
+}
+
+function applyLayerStylePatch(
+  map: maplibregl.Map,
+  id: string,
+  patch: LayerStylePatch,
+) {
+  for (const suffix of ["-fill", "-line", "-circle", "-raster"]) {
+    const layerId = id + suffix;
+    if (!map.getLayer(layerId)) continue;
+    if (patch.paint) {
+      for (const [key, value] of Object.entries(patch.paint)) {
+        try {
+          map.setPaintProperty(layerId, key, value as never);
+        } catch {
+          // MapLibre ignores unknown keys per layer type (e.g. fill-color on a
+          // line). Swallow so one-off mismatches don't break the whole patch.
+        }
+      }
+    }
+    if (patch.layout) {
+      for (const [key, value] of Object.entries(patch.layout)) {
+        try {
+          map.setLayoutProperty(layerId, key, value as never);
+        } catch {
+          // same tolerance as paint.
+        }
+      }
+    }
   }
 }
 

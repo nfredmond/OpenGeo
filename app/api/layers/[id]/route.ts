@@ -41,6 +41,55 @@ export const GET = withRoute<{ id: string }>("layers.get", async (_req, ctx) => 
   return NextResponse.json({ ok: true, layer, featureCollection: fc });
 });
 
+const PatchBody = z.object({
+  style: z.record(z.string(), z.unknown()).optional(),
+  name: z.string().trim().min(1).max(120).optional(),
+});
+
+export const PATCH = withRoute<{ id: string }>("layers.patch", async (req, ctx) => {
+  const rawParams = await ctx.params;
+  const parsed = ParamsSchema.safeParse(rawParams);
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: "Invalid layer id." }, { status: 400 });
+  }
+
+  const supabase = await supabaseServer();
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) {
+    return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
+  }
+
+  const bodyParsed = PatchBody.safeParse(await req.json().catch(() => ({})));
+  if (!bodyParsed.success) {
+    return NextResponse.json(
+      { ok: false, error: "Invalid request body.", issues: bodyParsed.error.issues },
+      { status: 400 },
+    );
+  }
+
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (bodyParsed.data.style !== undefined) patch.style = bodyParsed.data.style;
+  if (bodyParsed.data.name !== undefined) patch.name = bodyParsed.data.name;
+
+  const { data, error } = await supabase
+    .schema("opengeo")
+    .from("layers")
+    .update(patch)
+    .eq("id", parsed.data.id)
+    .select("id, name, style")
+    .maybeSingle();
+
+  if (error) {
+    const status = error.code === "42501" ? 403 : 400;
+    return NextResponse.json({ ok: false, error: error.message }, { status });
+  }
+  if (!data) {
+    return NextResponse.json({ ok: false, error: "Layer not found." }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true, layer: data });
+});
+
 export const DELETE = withRoute<{ id: string }>("layers.delete", async (_req, ctx) => {
   const rawParams = await ctx.params;
   const parsed = ParamsSchema.safeParse(rawParams);
