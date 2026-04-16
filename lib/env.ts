@@ -23,6 +23,7 @@ const serverSchema = z.object({
   FEATURE_AI_STYLE_GEN: z.enum(["true", "false"]).default("true"),
   FEATURE_AI_FEATURE_EXTRACTION: z.enum(["true", "false"]).default("false"),
   FEATURE_DRONE_PIPELINE: z.enum(["true", "false"]).default("false"),
+  FEATURE_DURABLE_PIPELINE: z.enum(["true", "false"]).default("false"),
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;
@@ -45,4 +46,5 @@ export const flag = {
   aiStyleGen: () => env().FEATURE_AI_STYLE_GEN === "true",
   aiFeatureExtraction: () => env().FEATURE_AI_FEATURE_EXTRACTION === "true",
   dronePipeline: () => env().FEATURE_DRONE_PIPELINE === "true",
+  durablePipeline: () => env().FEATURE_DURABLE_PIPELINE === "true",
 };

@@ -42,6 +42,7 @@
     "server-only": "^0.0.1",
     "superjson": "^2.2.2",
     "tailwind-merge": "^3.5.0",
+    "workflow": "^4.2.2",
     "zod": "^4.1.0"
   },
   "devDependencies": {

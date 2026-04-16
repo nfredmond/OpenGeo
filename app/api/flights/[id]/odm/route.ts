@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { start } from "workflow/api";
 import { supabaseServer } from "@/lib/supabase/server";
 import { withRoute } from "@/lib/observability/with-route";
 import { flag } from "@/lib/env";
@@ -8,6 +9,7 @@ import {
   odmCreateTask,
   odmUploadImage,
 } from "@/lib/odm/client";
+import { orthomosaicPipelineWorkflow } from "@/workflows/orthomosaic-pipeline";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -134,11 +136,25 @@ export const POST = withRoute<{ id: string }>("flights.odm.submit", async (req, 
     );
   }
 
+  // Kick off the durable polling workflow. If it fails to enqueue, we still
+  // return success — the /refresh route is a manual fallback and the row is
+  // already persisted as "processing".
+  let workflowRunId: string | null = null;
+  if (flag.durablePipeline()) {
+    try {
+      const run = await start(orthomosaicPipelineWorkflow, [ortho.id]);
+      workflowRunId = run.runId;
+    } catch (e) {
+      console.error(`failed to start workflow for ortho ${ortho.id}:`, e);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     orthomosaicId: ortho.id,
     odmJobId: uuid,
     imageCount: images.length,
     displayName,
+    workflowRunId,
   });
 });
