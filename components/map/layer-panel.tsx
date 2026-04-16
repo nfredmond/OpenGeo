@@ -15,11 +15,13 @@ export type ClientLayer = {
 
 export function LayerPanel({
   layers,
+  hydrating,
   onToggle,
   onRemove,
   onFocus,
 }: {
   layers: ClientLayer[];
+  hydrating?: boolean;
   onToggle: (id: string, visible: boolean) => void;
   onRemove: (id: string) => void;
   onFocus: (id: string) => void;
@@ -35,7 +37,7 @@ export function LayerPanel({
 
       {layers.length === 0 ? (
         <p className="text-xs text-[color:var(--muted)]">
-          No layers yet. Drop a GeoJSON file or run an AI query.
+          {hydrating ? "Loading your saved layers…" : "No layers yet. Drop a GeoJSON file or run an AI query."}
         </p>
       ) : (
         <ul className="space-y-2">

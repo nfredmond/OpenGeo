@@ -12,6 +12,7 @@ export function UploadPanel({
 }) {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const onFiles = useCallback(
@@ -23,13 +24,30 @@ export function UploadPanel({
         setError("Only .geojson / .json supported in Phase 0. Shapefile + GeoPackage ship in Phase 1.");
         return;
       }
+      setUploading(true);
       try {
         const text = await file.text();
         const parsed = JSON.parse(text);
         const fc = normalize(parsed);
+        const name = file.name.replace(/\.(geojson|json)$/i, "");
+
+        const response = await fetch("/api/datasets/upload", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name, featureCollection: fc }),
+        });
+        const body = (await response.json().catch(() => ({}))) as {
+          ok: boolean;
+          layerId?: string;
+          error?: string;
+        };
+        if (!response.ok || !body.ok || !body.layerId) {
+          throw new Error(body.error ?? `Upload failed (${response.status}).`);
+        }
+
         onLayerAdded({
-          id: `upload-${Date.now().toString(36)}`,
-          name: file.name.replace(/\.(geojson|json)$/i, ""),
+          id: body.layerId,
+          name,
           color: pickColor(),
           visible: true,
           source: "upload",
@@ -38,6 +56,8 @@ export function UploadPanel({
         });
       } catch (e) {
         setError((e as Error).message);
+      } finally {
+        setUploading(false);
       }
     },
     [onLayerAdded],
@@ -60,11 +80,11 @@ export function UploadPanel({
           dragging
             ? "border-[color:var(--accent)] bg-[color:var(--accent)]/10"
             : "border-[color:var(--border)] hover:border-[color:var(--accent)]"
-        }`}
+        } ${uploading ? "opacity-60" : ""}`}
       >
         <Upload size={16} className="text-[color:var(--muted)]" />
         <span className="text-xs font-medium">
-          Drop a GeoJSON here
+          {uploading ? "Uploading…" : "Drop a GeoJSON here"}
         </span>
         <span className="text-[10px] text-[color:var(--muted)]">
           or click to choose
@@ -74,6 +94,7 @@ export function UploadPanel({
           type="file"
           accept=".geojson,.json,application/json,application/geo+json"
           hidden
+          disabled={uploading}
           onChange={(e) => void onFiles(e.target.files)}
         />
       </label>

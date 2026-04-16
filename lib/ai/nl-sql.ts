@@ -4,6 +4,8 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import { env } from "@/lib/env";
 
+export { validateSql } from "./sql-guard";
+
 const NlSqlSchema = z.object({
   label: z
     .string()
@@ -51,26 +53,3 @@ export async function nlToSql(prompt: string): Promise<NlSqlResult> {
   return output;
 }
 
-// A cheap structural gate before handing the SQL to Postgres.
-const FORBIDDEN = [
-  /\b(insert|update|delete|alter|create|drop|truncate|grant|revoke|copy|vacuum|call|do|analyze)\b/i,
-  /;\s*\S/, // no stacked statements
-  /--/, // no inline comments that could hide intent
-  /\/\*/, // no block comments either
-];
-
-export function validateSql(sql: string): { ok: true } | { ok: false; reason: string } {
-  const trimmed = sql.trim().replace(/;+\s*$/, "");
-  if (!/^\s*(with\b|select\b)/i.test(trimmed)) {
-    return { ok: false, reason: "Only SELECT (optionally with CTE) is permitted." };
-  }
-  for (const pattern of FORBIDDEN) {
-    if (pattern.test(trimmed)) {
-      return { ok: false, reason: `Rejected pattern: ${pattern}` };
-    }
-  }
-  if (!/\bgeom\b/i.test(trimmed)) {
-    return { ok: false, reason: "Query must return a 'geom' column." };
-  }
-  return { ok: true };
-}
