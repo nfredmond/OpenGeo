@@ -1,0 +1,70 @@
+{
+  "name": "opengeo",
+  "version": "0.0.1",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "description": "AI-native drone-to-insight geospatial platform.",
+  "author": "Nathaniel Ford Redmond <nfredmond@gmail.com>",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "db:migrate:local": "dotenv -e .env.local -- tsx scripts/db-migrate.ts local",
+    "db:migrate:remote": "dotenv -e .env.local -- tsx scripts/db-migrate.ts remote",
+    "db:reset:local": "docker compose exec -T postgres psql -U opengeo -d opengeo -f /migrations/reset.sql",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "playwright test",
+    "geo": "tsx cli/src/index.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.70",
+    "@supabase/ssr": "^0.10.2",
+    "@supabase/supabase-js": "^2.103.3",
+    "@tanstack/react-query": "^5.99.0",
+    "@trpc/client": "^11.16.0",
+    "@trpc/next": "^11.16.0",
+    "@trpc/react-query": "^11.16.0",
+    "@trpc/server": "^11.16.0",
+    "ai": "^6.0.166",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.550.0",
+    "maplibre-gl": "^5.11.0",
+    "next": "16.2.4",
+    "pmtiles": "^4.4.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "server-only": "^0.0.1",
+    "superjson": "^2.2.2",
+    "tailwind-merge": "^3.5.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^22",
+    "@types/pg": "^8.15.6",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv-cli": "^11.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "pg": "^8.16.0",
+    "tailwindcss": "^4",
+    "tsx": "^4.20.6",
+    "typescript": "^5",
+    "vitest": "^4.1.4"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}

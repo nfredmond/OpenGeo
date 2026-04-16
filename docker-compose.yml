@@ -1,0 +1,65 @@
+# OpenGeo local development stack.
+# - postgres: PostGIS 15 + pgvector for tenant data.
+# - martin: Rust vector tile server; reads PostGIS directly on :3001.
+# - titiler: raster tile server for COGs on :8000.
+# - pg_featureserv: OGC API Features on :9000.
+#
+# Bring up: `docker compose up -d`
+# Tear down (preserve volumes): `docker compose down`
+# Tear down (delete data): `docker compose down -v`
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.4
+    container_name: opengeo-postgres
+    environment:
+      POSTGRES_USER: opengeo
+      POSTGRES_PASSWORD: opengeo
+      POSTGRES_DB: opengeo
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opengeo -d opengeo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  martin:
+    image: ghcr.io/maplibre/martin:v0.20.0
+    container_name: opengeo-martin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://opengeo:opengeo@postgres:5432/opengeo
+      RUST_LOG: info
+    ports:
+      - "3001:3000"
+    command: ["--listen-addresses", "0.0.0.0:3000"]
+
+  titiler:
+    image: ghcr.io/developmentseed/titiler:latest
+    container_name: opengeo-titiler
+    environment:
+      PORT: "8000"
+      WORKERS_PER_CORE: "1"
+    ports:
+      - "8000:8000"
+
+  pg_featureserv:
+    image: pramsey/pg_featureserv:latest
+    container_name: opengeo-pgfeatureserv
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://opengeo:opengeo@postgres:5432/opengeo
+      PGFS_SERVER_HTTPPORT: "9000"
+    ports:
+      - "9000:9000"
+
+volumes:
+  pgdata:
