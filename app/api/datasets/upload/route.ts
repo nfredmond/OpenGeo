@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseServer } from "@/lib/supabase/server";
+import { withRoute } from "@/lib/observability/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ const BodySchema = z.object({
 
 const MAX_BODY_BYTES = 25 * 1024 * 1024; // 25 MB — covers typical GeoJSON; larger uploads go through the chunked path (Phase 1).
 
-export async function POST(req: Request) {
+export const POST = withRoute("datasets.upload", async (req) => {
   const contentLength = Number(req.headers.get("content-length") ?? "0");
   if (contentLength > MAX_BODY_BYTES) {
     return NextResponse.json(
@@ -75,4 +76,4 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ ok: true, layerId, projectId, name: parsed.data.name });
-}
+});

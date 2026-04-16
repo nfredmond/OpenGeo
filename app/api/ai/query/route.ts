@@ -5,6 +5,7 @@ import { aiPool } from "@/lib/db/ai-pool";
 import { logAiEvent } from "@/lib/ai/logger";
 import { env, flag } from "@/lib/env";
 import { supabaseServer } from "@/lib/supabase/server";
+import { withRoute } from "@/lib/observability/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ const BodySchema = z.object({
   prompt: z.string().min(1).max(2000),
 });
 
-export async function POST(req: Request) {
+export const POST = withRoute("ai.query", async (req) => {
   if (!flag.aiNlSql()) {
     return NextResponse.json(
       { ok: false, error: "NL→SQL is disabled (FEATURE_AI_NL_SQL=false)." },
@@ -131,4 +132,4 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
-}
+});

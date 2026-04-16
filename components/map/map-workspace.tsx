@@ -5,13 +5,27 @@ import { MapCanvas, type MapCanvasHandle } from "./map-canvas";
 import { LayerPanel, type ClientLayer } from "./layer-panel";
 import { AiQueryPanel } from "./ai-query-panel";
 import { UploadPanel } from "./upload-panel";
+import { OrthoPanel } from "./ortho-panel";
 import { pickColor } from "./colors";
+import { publicEnv } from "@/lib/public-env";
 
 type RemoteLayerSummary = {
   id: string;
   name: string;
   geometry_kind: string;
   feature_count: number;
+};
+
+type RemoteOrthomosaic = {
+  id: string;
+  status: "queued" | "processing" | "ready" | "failed";
+  cog_url: string | null;
+};
+
+type RemoteFlight = {
+  id: string;
+  metadata: Record<string, unknown> | null;
+  orthomosaics: RemoteOrthomosaic[] | null;
 };
 
 export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
@@ -21,7 +35,18 @@ export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
 
   const addLayer = useCallback((layer: ClientLayer) => {
     setLayers((prev) => [...prev, layer]);
-    mapRef.current?.addGeoJsonLayer(layer);
+    if (layer.kind === "raster") {
+      mapRef.current?.addRasterLayer({
+        id: layer.id,
+        name: layer.name,
+        tilesUrlTemplate: titilerTilesUrl(layer.cogUrl),
+        bbox: null,
+        minzoom: 0,
+        maxzoom: 22,
+      });
+    } else {
+      mapRef.current?.addGeoJsonLayer(layer);
+    }
   }, []);
 
   const toggleLayer = useCallback((id: string, visible: boolean) => {
@@ -32,44 +57,16 @@ export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
   const removeLayer = useCallback(async (id: string) => {
     setLayers((prev) => prev.filter((l) => l.id !== id));
     mapRef.current?.removeLayer(id);
-    // Best-effort server delete — in-memory ephemerals (upload-placeholders, AI)
-    // will return 404, which we ignore.
     await fetch(`/api/layers/${id}`, { method: "DELETE" }).catch(() => undefined);
   }, []);
 
-  // Rehydrate persisted layers on mount. Each layer is fetched lazily (only
-  // its FeatureCollection) to keep the initial payload small.
+  // Rehydrate vector layers + raster orthomosaics on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const list = await fetch("/api/layers", { cache: "no-store" });
-        if (!list.ok) return;
-        const body = (await list.json()) as {
-          ok: boolean;
-          layers: RemoteLayerSummary[];
-        };
-        if (!body.ok || cancelled) return;
-
-        for (const remote of body.layers) {
-          const detail = await fetch(`/api/layers/${remote.id}`, { cache: "no-store" });
-          if (!detail.ok || cancelled) continue;
-          const payload = (await detail.json()) as {
-            ok: boolean;
-            featureCollection?: GeoJSON.FeatureCollection;
-          };
-          if (!payload.ok || !payload.featureCollection || cancelled) continue;
-          const layer: ClientLayer = {
-            id: remote.id,
-            name: remote.name,
-            color: pickColor(),
-            visible: true,
-            source: "remote",
-            data: payload.featureCollection,
-            featureCount: remote.feature_count,
-          };
-          addLayer(layer);
-        }
+        await hydrateVectorLayers(cancelled, addLayer);
+        await hydrateOrthomosaics(cancelled, addLayer);
       } finally {
         if (!cancelled) setHydrating(false);
       }
@@ -105,6 +102,7 @@ export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
         </header>
 
         <UploadPanel onLayerAdded={addLayer} />
+        <OrthoPanel onLayerAdded={addLayer} />
 
         <LayerPanel
           layers={layers}
@@ -122,4 +120,66 @@ export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
       </main>
     </>
   );
+}
+
+async function hydrateVectorLayers(
+  cancelled: boolean,
+  addLayer: (l: ClientLayer) => void,
+) {
+  const list = await fetch("/api/layers", { cache: "no-store" });
+  if (!list.ok) return;
+  const body = (await list.json()) as { ok: boolean; layers: RemoteLayerSummary[] };
+  if (!body.ok || cancelled) return;
+
+  for (const remote of body.layers) {
+    const detail = await fetch(`/api/layers/${remote.id}`, { cache: "no-store" });
+    if (!detail.ok || cancelled) continue;
+    const payload = (await detail.json()) as {
+      ok: boolean;
+      featureCollection?: GeoJSON.FeatureCollection;
+    };
+    if (!payload.ok || !payload.featureCollection || cancelled) continue;
+    addLayer({
+      id: remote.id,
+      name: remote.name,
+      color: pickColor(),
+      visible: true,
+      source: "remote",
+      kind: "vector",
+      data: payload.featureCollection,
+      featureCount: remote.feature_count,
+    });
+  }
+}
+
+async function hydrateOrthomosaics(
+  cancelled: boolean,
+  addLayer: (l: ClientLayer) => void,
+) {
+  const res = await fetch("/api/flights", { cache: "no-store" });
+  if (!res.ok) return;
+  const body = (await res.json()) as { ok: boolean; flights: RemoteFlight[] };
+  if (!body.ok || cancelled) return;
+
+  for (const flight of body.flights) {
+    const orthos = flight.orthomosaics ?? [];
+    const readyOrtho = orthos.find((o) => o.status === "ready" && o.cog_url);
+    if (!readyOrtho || !readyOrtho.cog_url) continue;
+    const metaName = (flight.metadata?.displayName as string | undefined) ?? "Orthomosaic";
+    addLayer({
+      id: `ortho-${readyOrtho.id}`,
+      name: metaName,
+      color: pickColor(),
+      visible: true,
+      source: "orthomosaic",
+      kind: "raster",
+      cogUrl: readyOrtho.cog_url,
+      featureCount: 0,
+    });
+  }
+}
+
+function titilerTilesUrl(cogUrl: string): string {
+  const base = publicEnv.NEXT_PUBLIC_TITILER_URL.replace(/\/$/, "");
+  return `${base}/cog/tiles/{z}/{x}/{y}.png?url=${encodeURIComponent(cogUrl)}`;
 }

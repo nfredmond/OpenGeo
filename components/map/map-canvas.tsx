@@ -11,11 +11,24 @@ import {
 import type { ClientLayer } from "./layer-panel";
 import { publicEnv } from "@/lib/public-env";
 
+type VectorClientLayer = Extract<ClientLayer, { kind?: "vector" }>;
+
 export type MapCanvasHandle = {
-  addGeoJsonLayer: (layer: ClientLayer) => void;
+  addGeoJsonLayer: (layer: VectorClientLayer) => void;
+  addRasterLayer: (raster: RasterLayer) => void;
   toggleLayer: (id: string, visible: boolean) => void;
   removeLayer: (id: string) => void;
   fitLayer: (id: string) => void;
+};
+
+export type RasterLayer = {
+  id: string;
+  name: string;
+  tilesUrlTemplate: string;
+  bbox: [number, number, number, number] | null; // [west, south, east, north]
+  minzoom?: number;
+  maxzoom?: number;
+  attribution?: string;
 };
 
 const FALLBACK_STYLE: maplibregl.StyleSpecification = {
@@ -99,10 +112,37 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
       else map.once("load", apply);
     },
 
+    addRasterLayer(raster) {
+      const map = mapRef.current;
+      if (!map) return;
+      const apply = () => {
+        if (map.getSource(raster.id)) return;
+        map.addSource(raster.id, {
+          type: "raster",
+          tiles: [raster.tilesUrlTemplate],
+          tileSize: 256,
+          minzoom: raster.minzoom ?? 0,
+          maxzoom: raster.maxzoom ?? 22,
+          attribution: raster.attribution,
+        });
+        map.addLayer({
+          id: raster.id + "-raster",
+          type: "raster",
+          source: raster.id,
+          paint: { "raster-opacity": 0.95 },
+        });
+        if (raster.bbox) {
+          map.fitBounds(raster.bbox as LngLatBoundsLike, { padding: 48, duration: 600 });
+        }
+      };
+      if (map.isStyleLoaded()) apply();
+      else map.once("load", apply);
+    },
+
     toggleLayer(id, visible) {
       const map = mapRef.current;
       if (!map) return;
-      for (const suffix of ["-fill", "-line", "-circle"]) {
+      for (const suffix of ["-fill", "-line", "-circle", "-raster"]) {
         const layerId = id + suffix;
         if (map.getLayer(layerId)) {
           map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
@@ -113,7 +153,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     removeLayer(id) {
       const map = mapRef.current;
       if (!map) return;
-      for (const suffix of ["-fill", "-line", "-circle"]) {
+      for (const suffix of ["-fill", "-line", "-circle", "-raster"]) {
         const layerId = id + suffix;
         if (map.getLayer(layerId)) map.removeLayer(layerId);
       }

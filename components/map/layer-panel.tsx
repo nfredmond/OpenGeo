@@ -3,15 +3,27 @@
 import { Eye, EyeOff, Layers, Target, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type ClientLayer = {
-  id: string;
-  name: string;
-  color: string;
-  visible: boolean;
-  source: "upload" | "ai-query" | "remote";
-  data: GeoJSON.FeatureCollection;
-  featureCount: number;
-};
+export type ClientLayer =
+  | {
+      id: string;
+      name: string;
+      color: string;
+      visible: boolean;
+      source: "upload" | "ai-query" | "remote";
+      kind?: "vector";
+      data: GeoJSON.FeatureCollection;
+      featureCount: number;
+    }
+  | {
+      id: string;
+      name: string;
+      color: string;
+      visible: boolean;
+      source: "orthomosaic";
+      kind: "raster";
+      cogUrl: string;
+      featureCount: number;
+    };
 
 export function LayerPanel({
   layers,

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { withRoute } from "@/lib/observability/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 // Handles the magic-link redirect. Supabase sends either an auth code
 // (PKCE flow) or a token hash (email confirm flow) — we exchange whichever
 // one arrives and redirect the user to `next`.
-export async function GET(request: Request) {
+export const GET = withRoute("auth.callback", async (request) => {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const tokenHash = url.searchParams.get("token_hash");
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
   }
 
   return redirectToLogin(url, next, "Missing auth code.");
-}
+});
 
 function redirectToLogin(url: URL, next: string, message: string): NextResponse {
   const target = new URL("/login", url.origin);

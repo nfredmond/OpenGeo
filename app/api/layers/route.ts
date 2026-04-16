@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { withRoute } from "@/lib/observability/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 // Lists layers visible to the current user. RLS on opengeo.layers ensures the
 // list is filtered to orgs the user belongs to — we do not re-check membership
 // here.
-export async function GET() {
+export const GET = withRoute("layers.list", async () => {
   const supabase = await supabaseServer();
   const { data: userData } = await supabase.auth.getUser();
   if (!userData.user) {
@@ -46,4 +47,4 @@ export async function GET() {
   }
 
   return NextResponse.json({ ok: true, layers: data ?? [] });
-}
+});

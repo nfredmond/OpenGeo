@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
+import { withRoute } from "@/lib/observability/with-route";
 
 export const runtime = "nodejs";
 
-export async function GET() {
-  return NextResponse.json({
+export const GET = withRoute("health.get", async () =>
+  NextResponse.json({
     status: "ok",
     service: "opengeo-web",
     version: "0.0.1",
     ts: new Date().toISOString(),
-  });
-}
+  }),
+);

@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseServer } from "@/lib/supabase/server";
+import { withRoute } from "@/lib/observability/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
 
-export async function GET(
-  _req: Request,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export const GET = withRoute<{ id: string }>("layers.get", async (_req, ctx) => {
   const rawParams = await ctx.params;
   const parsed = ParamsSchema.safeParse(rawParams);
   if (!parsed.success) {
@@ -41,12 +39,9 @@ export async function GET(
   }
 
   return NextResponse.json({ ok: true, layer, featureCollection: fc });
-}
+});
 
-export async function DELETE(
-  _req: Request,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export const DELETE = withRoute<{ id: string }>("layers.delete", async (_req, ctx) => {
   const rawParams = await ctx.params;
   const parsed = ParamsSchema.safeParse(rawParams);
   if (!parsed.success) {
@@ -67,4 +62,4 @@ export async function DELETE(
 
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
   return NextResponse.json({ ok: true });
-}
+});
