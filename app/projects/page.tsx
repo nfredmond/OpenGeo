@@ -60,6 +60,9 @@ export default async function ProjectsPage() {
               <Link href="/map" className="hover:text-[color:var(--foreground)]">
                 Map
               </Link>
+              <Link href="/status" className="hover:text-[color:var(--foreground)]">
+                Status
+              </Link>
             </nav>
           </div>
           <form action="/api/auth/signout" method="post" className="flex items-center gap-3">
