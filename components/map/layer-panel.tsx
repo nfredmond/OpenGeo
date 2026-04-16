@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, EyeOff, Layers, Target, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Layers, Sparkles, Target, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type ClientLayer =
@@ -43,12 +43,14 @@ export function LayerPanel({
   onToggle,
   onRemove,
   onFocus,
+  onExtract,
 }: {
   layers: ClientLayer[];
   hydrating?: boolean;
   onToggle: (id: string, visible: boolean) => void;
   onRemove: (id: string) => void;
   onFocus: (id: string) => void;
+  onExtract?: (layer: ClientLayer) => void;
 }) {
   return (
     <section className="flex-1 overflow-y-auto border-y border-[color:var(--border)] px-5 py-4">
@@ -89,6 +91,11 @@ export function LayerPanel({
               <IconBtn title="Fit" onClick={() => onFocus(layer.id)}>
                 <Target size={14} />
               </IconBtn>
+              {onExtract && layer.kind === "raster" && (
+                <IconBtn title="AI extract features" onClick={() => onExtract(layer)}>
+                  <Sparkles size={14} />
+                </IconBtn>
+              )}
               <IconBtn title="Remove" onClick={() => onRemove(layer.id)}>
                 <Trash2 size={14} />
               </IconBtn>

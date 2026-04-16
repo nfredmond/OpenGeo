@@ -78,6 +78,45 @@ export function MapWorkspace({
     await fetch(`/api/layers/${id}`, { method: "DELETE" }).catch(() => undefined);
   }, []);
 
+  const extractFromOrtho = useCallback(
+    async (layer: ClientLayer) => {
+      if (layer.kind !== "raster") return;
+      const orthoId = layer.id.startsWith("ortho-") ? layer.id.slice(6) : layer.id;
+      const prompt = window.prompt(
+        "What features should AI detect in this orthomosaic?",
+        "all buildings",
+      );
+      if (!prompt || !prompt.trim()) return;
+      const res = await fetch(`/api/orthomosaics/${orthoId}/extract`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: prompt.trim() }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok: boolean;
+        layerId?: string;
+        featureCollection?: GeoJSON.FeatureCollection;
+        featureCount?: number;
+        error?: string;
+      };
+      if (!res.ok || !body.ok || !body.layerId || !body.featureCollection) {
+        window.alert(body.error ?? `Extract failed (${res.status}).`);
+        return;
+      }
+      addLayer({
+        id: body.layerId,
+        name: `AI: ${prompt.trim()}`,
+        color: pickColor(),
+        visible: true,
+        source: "ai-query",
+        kind: "vector",
+        data: body.featureCollection,
+        featureCount: body.featureCount ?? body.featureCollection.features.length,
+      });
+    },
+    [addLayer],
+  );
+
   const projectSlug = project?.slug;
   // Rehydrate vector layers + raster orthomosaics on mount.
   useEffect(() => {
@@ -137,6 +176,7 @@ export function MapWorkspace({
           onToggle={toggleLayer}
           onRemove={removeLayer}
           onFocus={(id) => mapRef.current?.fitLayer(id)}
+          onExtract={extractFromOrtho}
         />
 
         <AiQueryPanel onLayerAdded={addLayer} />
