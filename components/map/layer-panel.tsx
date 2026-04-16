@@ -68,9 +68,18 @@ export function LayerPanel({
       </header>
 
       {layers.length === 0 ? (
-        <p className="text-xs text-[color:var(--muted)]">
-          {hydrating ? "Loading your saved layers…" : "No layers yet. Drop a GeoJSON file or run an AI query."}
-        </p>
+        hydrating ? (
+          <p className="text-xs text-[color:var(--muted)]">Loading your saved layers…</p>
+        ) : (
+          <div className="space-y-1 text-xs text-[color:var(--muted)]">
+            <p>No layers yet. Start one of these ways:</p>
+            <ul className="list-disc space-y-0.5 pl-5 text-[11px]">
+              <li>Drop drone images on the Orthomosaic panel</li>
+              <li>Drop a GeoJSON / shapefile on the Upload panel</li>
+              <li>Ask the AI panel for a spatial query</li>
+            </ul>
+          </div>
+        )
       ) : (
         <ul className="space-y-2">
           {layers.map((layer) => (
@@ -98,9 +107,15 @@ export function LayerPanel({
                 <Target size={14} />
               </IconBtn>
               {onExtract && layer.kind === "raster" && (
-                <IconBtn title="AI extract features" onClick={() => onExtract(layer)}>
-                  <Sparkles size={14} />
-                </IconBtn>
+                <button
+                  type="button"
+                  onClick={() => onExtract(layer)}
+                  title="Detect features with AI"
+                  className="flex items-center gap-1 rounded-full border border-[color:var(--accent)]/40 bg-[color:var(--accent)]/10 px-2 py-0.5 text-[10px] font-medium text-[color:var(--accent)] hover:bg-[color:var(--accent)]/20"
+                >
+                  <Sparkles size={12} />
+                  Detect
+                </button>
               )}
               {onEditStyle && (
                 <IconBtn title="Edit style" onClick={() => onEditStyle(layer)}>

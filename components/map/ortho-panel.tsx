@@ -13,8 +13,7 @@ type PendingOdm = {
   orthomosaicId: string;
   flightId: string;
   displayName: string;
-  status: OrthoStatus;
-  progress?: number;
+  imageCount: number;
 };
 
 // Two paths to register an orthomosaic:
@@ -23,9 +22,11 @@ type PendingOdm = {
 //            until a COG is produced, then swaps in the result.
 export function OrthoPanel({
   onLayerAdded,
+  onLayerReady,
   projectId,
 }: {
   onLayerAdded: (layer: ClientLayer) => void;
+  onLayerReady?: (layerId: string) => void;
   projectId?: string;
 }) {
   const [mode, setMode] = useState<Mode>("cog");
@@ -33,7 +34,7 @@ export function OrthoPanel({
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<PendingOdm | null>(null);
+  const [pending, setPending] = useState<PendingOdm[]>([]);
   const [dragging, setDragging] = useState(false);
   const imageryRef = useRef<HTMLInputElement>(null);
 
@@ -59,8 +60,9 @@ export function OrthoPanel({
       if (!orthoRes.ok || !orthoBody.ok || !orthoBody.orthomosaicId) {
         throw new Error(orthoBody.error ?? "Failed to register orthomosaic.");
       }
+      const layerId = `ortho-${orthoBody.orthomosaicId}`;
       onLayerAdded({
-        id: `ortho-${orthoBody.orthomosaicId}`,
+        id: layerId,
         name: displayName,
         color: pickColor(),
         visible: true,
@@ -69,6 +71,7 @@ export function OrthoPanel({
         cogUrl: cogUrl.trim(),
         featureCount: 0,
       });
+      onLayerReady?.(layerId);
       setCogUrl("");
       setName("");
     } catch (e) {
@@ -106,12 +109,15 @@ export function OrthoPanel({
         if (!submitRes.ok || !submitBody.ok || !submitBody.orthomosaicId) {
           throw new Error(submitBody.error ?? "Failed to submit ODM task.");
         }
-        setPending({
-          orthomosaicId: submitBody.orthomosaicId,
-          flightId,
-          displayName,
-          status: "processing",
-        });
+        setPending((prev) => [
+          ...prev,
+          {
+            orthomosaicId: submitBody.orthomosaicId!,
+            flightId,
+            displayName,
+            imageCount: files.length,
+          },
+        ]);
         setName("");
       } catch (e) {
         setError((e as Error).message);
@@ -122,71 +128,29 @@ export function OrthoPanel({
     [name, projectId],
   );
 
-  // Poll NodeODM through our refresh route until the orthomosaic is ready
-  // or fails. 5s cadence is plenty for small demo flights; real flights
-  // often take 10+ minutes so the backoff below slows after a minute.
-  useEffect(() => {
-    if (!pending || pending.status === "ready" || pending.status === "failed") return;
+  const dropPending = useCallback((orthomosaicId: string) => {
+    setPending((prev) => prev.filter((p) => p.orthomosaicId !== orthomosaicId));
+  }, []);
 
-    let cancelled = false;
-    let delay = 5000;
-    let elapsed = 0;
-
-    const tick = async () => {
-      if (cancelled) return;
-      try {
-        const res = await fetch(`/api/orthomosaics/${pending.orthomosaicId}/refresh`, {
-          method: "POST",
-        });
-        const body = (await res.json()) as {
-          ok: boolean;
-          status?: OrthoStatus;
-          cogUrl?: string;
-          progress?: number;
-          error?: string;
-        };
-        if (cancelled) return;
-        if (!res.ok || !body.ok || !body.status) {
-          setError(body.error ?? "ODM poll failed.");
-          return;
-        }
-        setPending((prev) =>
-          prev ? { ...prev, status: body.status!, progress: body.progress } : prev,
-        );
-        if (body.status === "ready" && body.cogUrl) {
-          onLayerAdded({
-            id: `ortho-${pending.orthomosaicId}`,
-            name: pending.displayName,
-            color: pickColor(),
-            visible: true,
-            source: "orthomosaic",
-            kind: "raster",
-            cogUrl: body.cogUrl,
-            featureCount: 0,
-          });
-          return;
-        }
-        if (body.status === "failed") {
-          setError("NodeODM processing failed for this flight.");
-          return;
-        }
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message);
-        return;
-      }
-
-      elapsed += delay;
-      if (elapsed > 60_000) delay = 15_000;
-      if (elapsed > 300_000) delay = 30_000;
-      if (!cancelled) setTimeout(tick, delay);
-    };
-
-    const t = setTimeout(tick, delay);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [pending, onLayerAdded]);
+  const handleReady = useCallback(
+    (entry: PendingOdm, cogUrl: string) => {
+      const layerId = `ortho-${entry.orthomosaicId}`;
+      onLayerAdded({
+        id: layerId,
+        name: entry.displayName,
+        color: pickColor(),
+        visible: true,
+        source: "orthomosaic",
+        kind: "raster",
+        cogUrl,
+        featureCount: 0,
+      });
+      onLayerReady?.(layerId);
+      // Leave the "Ready" pill visible briefly so the user sees the state flip.
+      setTimeout(() => dropPending(entry.orthomosaicId), 2500);
+    },
+    [onLayerAdded, onLayerReady, dropPending],
+  );
 
   return (
     <section className="border-b border-[color:var(--border)] bg-[color:var(--background)] px-5 py-4">
@@ -283,25 +247,116 @@ export function OrthoPanel({
         </div>
       )}
 
-      {pending && (
-        <div className="mt-2 rounded border border-[color:var(--border)] bg-[color:var(--card)] px-2 py-1.5 text-[10px]">
-          <div className="flex items-center justify-between">
-            <span className="font-medium">{pending.displayName}</span>
-            <span className="text-[color:var(--muted)]">{pending.status}</span>
-          </div>
-          {typeof pending.progress === "number" && (
-            <div className="mt-1 h-1 w-full overflow-hidden rounded bg-[color:var(--border)]">
-              <div
-                className="h-full bg-[color:var(--accent)]"
-                style={{ width: `${Math.min(100, Math.max(2, pending.progress))}%` }}
-              />
-            </div>
-          )}
-        </div>
+      {pending.length > 0 && (
+        <ul className="mt-2 flex flex-col gap-1">
+          {pending.map((p) => (
+            <PendingRow
+              key={p.orthomosaicId}
+              entry={p}
+              onReady={handleReady}
+              onFailed={(msg) => {
+                setError(msg);
+                dropPending(p.orthomosaicId);
+              }}
+            />
+          ))}
+        </ul>
       )}
 
       {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
     </section>
+  );
+}
+
+// Polls NodeODM through our refresh route until the orthomosaic is ready or
+// fails. Each pending entry owns its own effect so concurrent uploads don't
+// share a single backoff clock.
+function PendingRow({
+  entry,
+  onReady,
+  onFailed,
+}: {
+  entry: PendingOdm;
+  onReady: (entry: PendingOdm, cogUrl: string) => void;
+  onFailed: (message: string) => void;
+}) {
+  const [status, setStatus] = useState<OrthoStatus>("processing");
+  const [progress, setProgress] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    let delay = 5000;
+    let elapsed = 0;
+
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(`/api/orthomosaics/${entry.orthomosaicId}/refresh`, {
+          method: "POST",
+        });
+        const body = (await res.json()) as {
+          ok: boolean;
+          status?: OrthoStatus;
+          cogUrl?: string;
+          progress?: number;
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!res.ok || !body.ok || !body.status) {
+          onFailed(body.error ?? "ODM poll failed.");
+          return;
+        }
+        setStatus(body.status);
+        setProgress(body.progress);
+        if (body.status === "ready" && body.cogUrl) {
+          onReady(entry, body.cogUrl);
+          return;
+        }
+        if (body.status === "failed") {
+          onFailed(`NodeODM processing failed for ${entry.displayName}.`);
+          return;
+        }
+      } catch (e) {
+        if (!cancelled) onFailed((e as Error).message);
+        return;
+      }
+
+      elapsed += delay;
+      if (elapsed > 60_000) delay = 15_000;
+      if (elapsed > 300_000) delay = 30_000;
+      if (!cancelled) setTimeout(tick, delay);
+    };
+
+    const t = setTimeout(tick, delay);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [entry, onReady, onFailed]);
+
+  return (
+    <li className="rounded border border-[color:var(--border)] bg-[color:var(--card)] px-2 py-1.5 text-[10px]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate font-medium">{entry.displayName}</span>
+        <span className="text-[color:var(--muted)]">
+          {status === "ready" ? "Ready" : status}
+          {typeof progress === "number" && status !== "ready" && status !== "failed"
+            ? ` · ${Math.round(progress)}%`
+            : ""}
+        </span>
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-2 text-[9px] text-[color:var(--muted)]">
+        <span>{entry.imageCount} images</span>
+      </div>
+      {typeof progress === "number" && status !== "ready" && status !== "failed" && (
+        <div className="mt-1 h-1 w-full overflow-hidden rounded bg-[color:var(--border)]">
+          <div
+            className="h-full bg-[color:var(--accent)]"
+            style={{ width: `${Math.min(100, Math.max(2, progress))}%` }}
+          />
+        </div>
+      )}
+    </li>
   );
 }
 

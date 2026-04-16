@@ -9,6 +9,7 @@ import { UploadPanel } from "./upload-panel";
 import { OrthoPanel } from "./ortho-panel";
 import { BasemapPicker } from "./basemap-picker";
 import { StyleEditor } from "./style-editor";
+import { ExtractPrompt } from "./extract-prompt";
 import { defaultBasemapId, type BasemapId } from "./basemaps";
 import { pickColor } from "./colors";
 import { publicEnv } from "@/lib/public-env";
@@ -46,6 +47,7 @@ export function MapWorkspace({
   const [hydrating, setHydrating] = useState(true);
   const [basemap, setBasemap] = useState<BasemapId>(defaultBasemapId());
   const [editingLayer, setEditingLayer] = useState<ClientLayer | null>(null);
+  const [extractTarget, setExtractTarget] = useState<ClientLayer | null>(null);
   const mapRef = useRef<MapCanvasHandle>(null);
 
   const changeBasemap = useCallback((id: BasemapId) => {
@@ -92,19 +94,14 @@ export function MapWorkspace({
     await fetch(`/api/layers/${id}`, { method: "DELETE" }).catch(() => undefined);
   }, []);
 
-  const extractFromOrtho = useCallback(
-    async (layer: ClientLayer) => {
+  const submitExtract = useCallback(
+    async (layer: ClientLayer, prompt: string) => {
       if (layer.kind !== "raster") return;
       const orthoId = layer.id.startsWith("ortho-") ? layer.id.slice(6) : layer.id;
-      const prompt = window.prompt(
-        "What features should AI detect in this orthomosaic?",
-        "all buildings",
-      );
-      if (!prompt || !prompt.trim()) return;
       const res = await fetch(`/api/orthomosaics/${orthoId}/extract`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: prompt.trim() }),
+        body: JSON.stringify({ prompt }),
       });
       const body = (await res.json().catch(() => ({}))) as {
         ok: boolean;
@@ -114,12 +111,11 @@ export function MapWorkspace({
         error?: string;
       };
       if (!res.ok || !body.ok || !body.layerId || !body.featureCollection) {
-        window.alert(body.error ?? `Extract failed (${res.status}).`);
-        return;
+        throw new Error(body.error ?? `Extract failed (${res.status}).`);
       }
       addLayer({
         id: body.layerId,
-        name: `AI: ${prompt.trim()}`,
+        name: `AI: ${prompt}`,
         color: pickColor(),
         visible: true,
         source: "ai-query",
@@ -182,7 +178,11 @@ export function MapWorkspace({
         </header>
 
         <UploadPanel onLayerAdded={addLayer} projectId={project?.id} />
-        <OrthoPanel onLayerAdded={addLayer} projectId={project?.id} />
+        <OrthoPanel
+          onLayerAdded={addLayer}
+          projectId={project?.id}
+          onLayerReady={(id) => mapRef.current?.fitLayer(id)}
+        />
 
         <LayerPanel
           layers={layers}
@@ -190,7 +190,7 @@ export function MapWorkspace({
           onToggle={toggleLayer}
           onRemove={removeLayer}
           onFocus={(id) => mapRef.current?.fitLayer(id)}
-          onExtract={extractFromOrtho}
+          onExtract={setExtractTarget}
           onEditStyle={setEditingLayer}
         />
 
@@ -219,6 +219,14 @@ export function MapWorkspace({
             mapRef.current?.setLayerStyle(editingLayer.id, patch);
           }}
           onClose={() => setEditingLayer(null)}
+        />
+      )}
+
+      {extractTarget && (
+        <ExtractPrompt
+          layer={extractTarget}
+          onClose={() => setExtractTarget(null)}
+          onSubmit={(prompt) => submitExtract(extractTarget, prompt)}
         />
       )}
     </>
