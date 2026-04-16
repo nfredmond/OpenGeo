@@ -45,6 +45,15 @@ export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
         minzoom: 0,
         maxzoom: 22,
       });
+    } else if (layer.kind === "vector-tile") {
+      mapRef.current?.addVectorTileLayer({
+        id: layer.id,
+        name: layer.name,
+        tilesUrlTemplate: layer.tilesUrlTemplate,
+        sourceLayer: layer.sourceLayer,
+        geometryKind: layer.geometryKind,
+        color: layer.color,
+      });
     } else {
       mapRef.current?.addGeoJsonLayer(layer);
     }
@@ -129,6 +138,11 @@ export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
   );
 }
 
+// Layers with more features than this get rendered via Martin vector tiles
+// rather than inlined GeoJSON. Small layers stay as GeoJSON so editing and
+// AI-query results remain instantly visible without a tile roundtrip.
+const TILE_THRESHOLD = 2000;
+
 async function hydrateVectorLayers(
   cancelled: boolean,
   addLayer: (l: ClientLayer) => void,
@@ -139,6 +153,22 @@ async function hydrateVectorLayers(
   if (!body.ok || cancelled) return;
 
   for (const remote of body.layers) {
+    if (remote.feature_count > TILE_THRESHOLD) {
+      addLayer({
+        id: remote.id,
+        name: remote.name,
+        color: pickColor(),
+        visible: true,
+        source: "remote",
+        kind: "vector-tile",
+        tilesUrlTemplate: martinTilesUrl(remote.id),
+        sourceLayer: "layer",
+        geometryKind: remote.geometry_kind,
+        featureCount: remote.feature_count,
+      });
+      continue;
+    }
+
     const detail = await fetch(`/api/layers/${remote.id}`, { cache: "no-store" });
     if (!detail.ok || cancelled) continue;
     const payload = (await detail.json()) as {
@@ -189,4 +219,9 @@ async function hydrateOrthomosaics(
 function titilerTilesUrl(cogUrl: string): string {
   const base = publicEnv.NEXT_PUBLIC_TITILER_URL.replace(/\/$/, "");
   return `${base}/cog/tiles/{z}/{x}/{y}.png?url=${encodeURIComponent(cogUrl)}`;
+}
+
+function martinTilesUrl(layerId: string): string {
+  const base = publicEnv.NEXT_PUBLIC_MARTIN_URL.replace(/\/$/, "");
+  return `${base}/opengeo_layer_mvt/{z}/{x}/{y}?layer_id=${encodeURIComponent(layerId)}`;
 }

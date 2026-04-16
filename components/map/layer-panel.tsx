@@ -19,6 +19,18 @@ export type ClientLayer =
       name: string;
       color: string;
       visible: boolean;
+      source: "remote";
+      kind: "vector-tile";
+      tilesUrlTemplate: string;
+      sourceLayer: string;
+      geometryKind: string;
+      featureCount: number;
+    }
+  | {
+      id: string;
+      name: string;
+      color: string;
+      visible: boolean;
       source: "orthomosaic";
       kind: "raster";
       cogUrl: string;

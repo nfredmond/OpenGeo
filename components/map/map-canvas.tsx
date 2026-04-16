@@ -15,6 +15,7 @@ type VectorClientLayer = Extract<ClientLayer, { kind?: "vector" }>;
 
 export type MapCanvasHandle = {
   addGeoJsonLayer: (layer: VectorClientLayer) => void;
+  addVectorTileLayer: (layer: VectorTileLayer) => void;
   addRasterLayer: (raster: RasterLayer) => void;
   toggleLayer: (id: string, visible: boolean) => void;
   removeLayer: (id: string) => void;
@@ -29,6 +30,18 @@ export type RasterLayer = {
   minzoom?: number;
   maxzoom?: number;
   attribution?: string;
+};
+
+export type VectorTileLayer = {
+  id: string;
+  name: string;
+  tilesUrlTemplate: string;
+  sourceLayer: string;
+  geometryKind: string;
+  color: string;
+  bbox?: [number, number, number, number] | null;
+  minzoom?: number;
+  maxzoom?: number;
 };
 
 const FALLBACK_STYLE: maplibregl.StyleSpecification = {
@@ -139,6 +152,26 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
       else map.once("load", apply);
     },
 
+    addVectorTileLayer(layer) {
+      const map = mapRef.current;
+      if (!map) return;
+      const apply = () => {
+        if (map.getSource(layer.id)) return;
+        map.addSource(layer.id, {
+          type: "vector",
+          tiles: [layer.tilesUrlTemplate],
+          minzoom: layer.minzoom ?? 0,
+          maxzoom: layer.maxzoom ?? 22,
+        });
+        addVectorTileStyleLayers(map, layer);
+        if (layer.bbox) {
+          map.fitBounds(layer.bbox as LngLatBoundsLike, { padding: 48, duration: 600 });
+        }
+      };
+      if (map.isStyleLoaded()) apply();
+      else map.once("load", apply);
+    },
+
     toggleLayer(id, visible) {
       const map = mapRef.current;
       if (!map) return;
@@ -221,6 +254,47 @@ function addStyleLayers(
       source: sourceId,
       paint: {
         "circle-color": color,
+        "circle-radius": 5,
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 1,
+      },
+    });
+  }
+}
+
+function addVectorTileStyleLayers(map: maplibregl.Map, layer: VectorTileLayer) {
+  const kind = layer.geometryKind.toLowerCase();
+  const baseLayer = {
+    source: layer.id,
+    "source-layer": layer.sourceLayer,
+  } as const;
+  if (kind.includes("polygon")) {
+    map.addLayer({
+      ...baseLayer,
+      id: layer.id + "-fill",
+      type: "fill",
+      paint: { "fill-color": layer.color, "fill-opacity": 0.35 },
+    });
+    map.addLayer({
+      ...baseLayer,
+      id: layer.id + "-line",
+      type: "line",
+      paint: { "line-color": layer.color, "line-width": 1.5 },
+    });
+  } else if (kind.includes("linestring") || kind.includes("line")) {
+    map.addLayer({
+      ...baseLayer,
+      id: layer.id + "-line",
+      type: "line",
+      paint: { "line-color": layer.color, "line-width": 2 },
+    });
+  } else {
+    map.addLayer({
+      ...baseLayer,
+      id: layer.id + "-circle",
+      type: "circle",
+      paint: {
+        "circle-color": layer.color,
         "circle-radius": 5,
         "circle-stroke-color": "#ffffff",
         "circle-stroke-width": 1,
