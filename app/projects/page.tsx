@@ -135,7 +135,7 @@ export default async function ProjectsPage() {
                   <div className="mt-3 flex items-center justify-between text-[11px] text-[color:var(--muted)]">
                     <code className="font-mono">{p.slug}</code>
                     <Link
-                      href="/map"
+                      href={`/map/${p.slug}`}
                       className="text-[color:var(--accent)] hover:underline"
                     >
                       Open map →

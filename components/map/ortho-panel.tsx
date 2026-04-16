@@ -12,8 +12,10 @@ import { pickColor } from "./colors";
 // planners who already have their orthos.
 export function OrthoPanel({
   onLayerAdded,
+  projectId,
 }: {
   onLayerAdded: (layer: ClientLayer) => void;
+  projectId?: string;
 }) {
   const [cogUrl, setCogUrl] = useState("");
   const [name, setName] = useState("");
@@ -33,6 +35,7 @@ export function OrthoPanel({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          projectId,
           flownAt: new Date().toISOString(),
           metadata: { registeredFromUrl: true, displayName },
         }),

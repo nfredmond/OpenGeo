@@ -29,7 +29,15 @@ type RemoteFlight = {
   orthomosaics: RemoteOrthomosaic[] | null;
 };
 
-export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
+type ProjectContext = { id: string; slug: string; name: string };
+
+export function MapWorkspace({
+  userEmail,
+  project,
+}: {
+  userEmail: string | null;
+  project?: ProjectContext;
+}) {
   const [layers, setLayers] = useState<ClientLayer[]>([]);
   const [hydrating, setHydrating] = useState(true);
   const mapRef = useRef<MapCanvasHandle>(null);
@@ -70,13 +78,14 @@ export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
     await fetch(`/api/layers/${id}`, { method: "DELETE" }).catch(() => undefined);
   }, []);
 
+  const projectSlug = project?.slug;
   // Rehydrate vector layers + raster orthomosaics on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        await hydrateVectorLayers(cancelled, addLayer);
-        await hydrateOrthomosaics(cancelled, addLayer);
+        await hydrateVectorLayers(cancelled, addLayer, projectSlug);
+        await hydrateOrthomosaics(cancelled, addLayer, projectSlug);
       } finally {
         if (!cancelled) setHydrating(false);
       }
@@ -84,16 +93,18 @@ export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
     return () => {
       cancelled = true;
     };
-  }, [addLayer]);
+  }, [addLayer, projectSlug]);
 
   return (
     <>
       <aside className="flex w-80 flex-col border-r border-[color:var(--border)] bg-[color:var(--card)]">
         <header className="flex items-start justify-between border-b border-[color:var(--border)] px-5 py-4">
-          <div>
-            <h1 className="text-sm font-semibold tracking-tight">OpenGeo</h1>
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-semibold tracking-tight">
+              {project ? project.name : "OpenGeo"}
+            </h1>
             <p className="text-xs text-[color:var(--muted)]">
-              drone-to-insight workspace
+              {project ? `project · ${project.slug}` : "drone-to-insight workspace"}
             </p>
             <Link
               href="/projects"
@@ -117,8 +128,8 @@ export function MapWorkspace({ userEmail }: { userEmail: string | null }) {
           )}
         </header>
 
-        <UploadPanel onLayerAdded={addLayer} />
-        <OrthoPanel onLayerAdded={addLayer} />
+        <UploadPanel onLayerAdded={addLayer} projectId={project?.id} />
+        <OrthoPanel onLayerAdded={addLayer} projectId={project?.id} />
 
         <LayerPanel
           layers={layers}
@@ -146,8 +157,12 @@ const TILE_THRESHOLD = 2000;
 async function hydrateVectorLayers(
   cancelled: boolean,
   addLayer: (l: ClientLayer) => void,
+  projectSlug?: string,
 ) {
-  const list = await fetch("/api/layers", { cache: "no-store" });
+  const url = projectSlug
+    ? `/api/layers?projectSlug=${encodeURIComponent(projectSlug)}`
+    : "/api/layers";
+  const list = await fetch(url, { cache: "no-store" });
   if (!list.ok) return;
   const body = (await list.json()) as { ok: boolean; layers: RemoteLayerSummary[] };
   if (!body.ok || cancelled) return;
@@ -192,8 +207,12 @@ async function hydrateVectorLayers(
 async function hydrateOrthomosaics(
   cancelled: boolean,
   addLayer: (l: ClientLayer) => void,
+  projectSlug?: string,
 ) {
-  const res = await fetch("/api/flights", { cache: "no-store" });
+  const url = projectSlug
+    ? `/api/flights?projectSlug=${encodeURIComponent(projectSlug)}`
+    : "/api/flights";
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) return;
   const body = (await res.json()) as { ok: boolean; flights: RemoteFlight[] };
   if (!body.ok || cancelled) return;

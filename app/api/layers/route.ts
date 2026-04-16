@@ -7,15 +7,20 @@ export const dynamic = "force-dynamic";
 
 // Lists layers visible to the current user. RLS on opengeo.layers ensures the
 // list is filtered to orgs the user belongs to — we do not re-check membership
-// here.
-export const GET = withRoute("layers.list", async () => {
+// here. Optional ?projectSlug= or ?projectId= narrows the list to a single
+// project (still RLS-filtered).
+export const GET = withRoute("layers.list", async (req) => {
   const supabase = await supabaseServer();
   const { data: userData } = await supabase.auth.getUser();
   if (!userData.user) {
     return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
   }
 
-  const { data, error } = await supabase
+  const url = new URL(req.url);
+  const projectId = url.searchParams.get("projectId");
+  const projectSlug = url.searchParams.get("projectSlug");
+
+  let query = supabase
     .schema("opengeo")
     .from("layers")
     .select(
@@ -30,6 +35,7 @@ export const GET = withRoute("layers.list", async () => {
         name,
         project:projects!inner (
           id,
+          slug,
           name,
           org:orgs!inner (
             id,
@@ -41,6 +47,11 @@ export const GET = withRoute("layers.list", async () => {
     `,
     )
     .order("updated_at", { ascending: false });
+
+  if (projectId) query = query.eq("dataset.project.id", projectId);
+  if (projectSlug) query = query.eq("dataset.project.slug", projectSlug);
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

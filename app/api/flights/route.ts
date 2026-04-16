@@ -23,14 +23,18 @@ const CreateBody = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const GET = withRoute("flights.list", async () => {
+export const GET = withRoute("flights.list", async (req) => {
   const supabase = await supabaseServer();
   const { data: userData } = await supabase.auth.getUser();
   if (!userData.user) {
     return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
   }
 
-  const { data, error } = await supabase
+  const url = new URL(req.url);
+  const projectId = url.searchParams.get("projectId");
+  const projectSlug = url.searchParams.get("projectSlug");
+
+  let query = supabase
     .schema("opengeo")
     .from("drone_flights")
     .select(
@@ -42,6 +46,7 @@ export const GET = withRoute("flights.list", async () => {
       aircraft,
       metadata,
       created_at,
+      project:projects!inner (id, slug, name),
       orthomosaics (
         id,
         status,
@@ -52,6 +57,11 @@ export const GET = withRoute("flights.list", async () => {
     `,
     )
     .order("flown_at", { ascending: false });
+
+  if (projectId) query = query.eq("project_id", projectId);
+  if (projectSlug) query = query.eq("project.slug", projectSlug);
+
+  const { data, error } = await query;
 
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, flights: data ?? [] });

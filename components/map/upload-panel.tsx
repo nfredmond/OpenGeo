@@ -7,8 +7,10 @@ import { pickColor } from "./colors";
 
 export function UploadPanel({
   onLayerAdded,
+  projectId,
 }: {
   onLayerAdded: (layer: ClientLayer) => void;
+  projectId?: string;
 }) {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +36,7 @@ export function UploadPanel({
         const response = await fetch("/api/datasets/upload", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name, featureCollection: fc }),
+          body: JSON.stringify({ name, featureCollection: fc, projectId }),
         });
         const body = (await response.json().catch(() => ({}))) as {
           ok: boolean;
@@ -60,7 +62,7 @@ export function UploadPanel({
         setUploading(false);
       }
     },
-    [onLayerAdded],
+    [onLayerAdded, projectId],
   );
 
   return (
