@@ -34,7 +34,7 @@
     "ai": "^6.0.168",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^0.550.0",
+    "lucide-react": "^1.8.0",
     "maplibre-gl": "^5.11.0",
     "next": "16.2.4",
     "pmtiles": "^4.4.1",
