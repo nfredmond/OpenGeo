@@ -31,3 +31,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: Se
 - `HttpExtractor` on the Next.js side. `getExtractor()` dispatches on `OPENGEO_EXTRACTOR={mock,http}`.
 - Public GitHub repo: <https://github.com/nfredmond/OpenGeo> (AGPL-v3).
 - GitHub Actions CI (lint + typecheck + test) and Dependabot grouped by stack area.
+- `tests/unit/http-extractor.test.ts` — CI coverage for the Next.js → Python extractor HTTP contract (POST /extract, bearer auth, error surfacing, custom model label). First unit coverage of the product ↔ engine boundary.
+- `pnpm gauntlet --extractor=mock|http` flag. The default stays `mock` so CI stays fast; `http` hits the running Python extractor and asserts a non-empty `FeatureCollection` + populated `metrics.model` against a small public NAIP COG (overridable via `OPENGEO_GAUNTLET_COG_URL`). Satisfies ADR-002 §8.
+- Root `README.md` rewrite: covenant statement, explicit "what it isn't" section (not an ArcGIS clone — references research.md Failure Mode #2), "who this is for" framing (NorCal RTPAs, tribes, small cities), docs index, CI badge, `pnpm db:seed:local` in the quickstart.

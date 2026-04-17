@@ -12,14 +12,26 @@
  *   5. NL→style returns an allowed-key patch for a simple paint request.
  *   6. NL→style grounds data-driven expressions on a property key that
  *      actually exists on the layer (no fabrication).
+ *   7. The extractor contract returns a non-empty FeatureCollection with
+ *      `metrics.model` populated. `--extractor=mock` (default) uses the
+ *      in-process MockExtractor; `--extractor=http` hits the Python service
+ *      at OPENGEO_EXTRACTOR_URL (CPU docker for dev, Modal for prod).
  *
  * Requires (all from .env.local via dotenv-cli):
  *   LOCAL_DB_URL       Postgres connection string for the docker compose DB.
  *   ANTHROPIC_API_KEY  Real key — this hits Claude.
  *
+ * Extractor-specific (--extractor=http only):
+ *   OPENGEO_EXTRACTOR_URL     Base URL of the extractor service.
+ *   OPENGEO_EXTRACTOR_TOKEN   Bearer token (empty string disables auth).
+ *   OPENGEO_GAUNTLET_COG_URL  COG the extractor should segment. Optional;
+ *                             defaults to a small public NAIP tile. Point
+ *                             it at a COG you trust the extractor can fetch.
+ *
  * Usage:
  *   pnpm db:migrate:local && pnpm db:seed:local   # once
- *   pnpm gauntlet
+ *   pnpm gauntlet                                 # mock extractor (fast)
+ *   pnpm gauntlet --extractor=http                # real service (slow on CPU)
  *
  * Exits 0 iff every step passes. Exit code and stdout are stable enough to
  * wire into CI once we have a seeded Postgres in the CI runner.
@@ -28,6 +40,9 @@ import { Client } from "pg";
 import { nlToSql, validateSql } from "../lib/ai/nl-sql";
 import { nlToStyle, type LayerContext } from "../lib/ai/nl-style";
 import { aiPool } from "../lib/db/ai-pool";
+import { HttpExtractor } from "../lib/extraction/http-extractor";
+import { MockExtractor } from "../lib/extraction/mock-extractor";
+import type { Extractor } from "../lib/extraction/types";
 
 type Result = {
   step: string;
@@ -37,6 +52,34 @@ type Result = {
 };
 
 const results: Result[] = [];
+
+type ExtractorMode = "mock" | "http";
+
+function parseArgs(): { extractor: ExtractorMode } {
+  const raw = process.argv.slice(2).find((a) => a.startsWith("--extractor="));
+  if (!raw) return { extractor: "mock" };
+  const value = raw.split("=", 2)[1];
+  if (value !== "mock" && value !== "http") {
+    console.error(
+      `× Unknown --extractor value: "${value}". Use --extractor=mock or --extractor=http.`,
+    );
+    process.exit(1);
+  }
+  return { extractor: value };
+}
+
+function makeExtractor(mode: ExtractorMode): Extractor {
+  if (mode === "mock") return new MockExtractor();
+  const url = process.env.OPENGEO_EXTRACTOR_URL;
+  if (!url) {
+    throw new Error(
+      "--extractor=http requires OPENGEO_EXTRACTOR_URL in .env.local. " +
+        "Local dev: `docker compose --profile extractor up -d extractor` then " +
+        "set OPENGEO_EXTRACTOR_URL=http://localhost:8100. See services/extractor/README.md.",
+    );
+  }
+  return new HttpExtractor(url, process.env.OPENGEO_EXTRACTOR_TOKEN ?? "");
+}
 
 async function check(step: string, fn: () => Promise<string>) {
   const started = Date.now();
@@ -54,6 +97,8 @@ async function check(step: string, fn: () => Promise<string>) {
 }
 
 async function main() {
+  const { extractor: extractorMode } = parseArgs();
+
   if (!process.env.ANTHROPIC_API_KEY) {
     console.error(
       "× ANTHROPIC_API_KEY is not set. Add it to .env.local before running the gauntlet.",
@@ -71,6 +116,7 @@ async function main() {
   console.log("OpenGeo Phase 1 exit gauntlet");
   console.log(`  db: ${host}`);
   console.log(`  model: ${process.env.ANTHROPIC_MODEL ?? "claude-opus-4-7"}`);
+  console.log(`  extractor: ${extractorMode}`);
   console.log();
 
   const db = new Client({ connectionString: process.env.LOCAL_DB_URL });
@@ -171,6 +217,41 @@ async function main() {
           );
         }
         return `expression references 'kind'`;
+      },
+    );
+
+    // Extractor smoke — contract check against whichever extractor was
+    // requested. Mock runs in ~10ms; http against the CPU docker extractor
+    // can take 3–10 minutes per tile and that is expected.
+    await check(
+      `Extractor (${extractorMode}): returns a non-empty FeatureCollection`,
+      async () => {
+        const extractor = makeExtractor(extractorMode);
+        const bbox: [number, number, number, number] = [
+          -121.07, 39.215, -121.05, 39.225,
+        ];
+        const cogUrl =
+          process.env.OPENGEO_GAUNTLET_COG_URL ??
+          // Small public NAIP COG over Grass Valley, CA. Override with
+          // OPENGEO_GAUNTLET_COG_URL when running against a private bucket.
+          "https://naip-visualization.s3.amazonaws.com/ca/2022/60cm/rgb/39121/m_3912159_nw_10_060_20220603.tif";
+        const r = await extractor.extract({
+          orthomosaicId: "gauntlet",
+          cogUrl,
+          prompt: "buildings",
+          bbox,
+        });
+        if (r.featureCollection?.type !== "FeatureCollection") {
+          throw new Error("result is not a FeatureCollection");
+        }
+        const n = r.featureCollection.features?.length ?? 0;
+        if (n === 0) {
+          throw new Error("FeatureCollection has zero features");
+        }
+        if (!r.metrics?.model) {
+          throw new Error("metrics.model is empty");
+        }
+        return `${n} feature(s) from ${extractor.name}:${r.metrics.model} in ${r.metrics.latencyMs}ms`;
       },
     );
   } finally {

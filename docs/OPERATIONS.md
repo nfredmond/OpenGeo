@@ -102,6 +102,15 @@ docker compose --profile extractor up -d extractor
 
 CPU inference is slow (3–10 min per tile). Use it to exercise the pipeline, not for real work.
 
+**Smoke-test the extractor end-to-end:**
+
+```bash
+pnpm gauntlet --extractor=http     # real Python service at OPENGEO_EXTRACTOR_URL
+pnpm gauntlet                      # default = mock extractor (fast; CI baseline)
+```
+
+The `--extractor=http` step POSTs a real `/extract` request with a small public NAIP COG and asserts a non-empty `FeatureCollection` + populated `metrics.model`. Override the COG via `OPENGEO_GAUNTLET_COG_URL`. Expect minutes, not seconds, against the CPU docker extractor.
+
 **Production (Modal):**
 
 ```bash
