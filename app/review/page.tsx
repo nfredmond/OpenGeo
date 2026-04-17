@@ -65,6 +65,7 @@ export default function ReviewPage() {
   const [aiItems, setAiItems] = useState<AiEvent[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [aiHasMore, setAiHasMore] = useState(false);
 
   const load = useCallback(async (f: QaStatus | "all") => {
     setLoading(true);
@@ -82,21 +83,35 @@ export default function ReviewPage() {
     }
   }, []);
 
-  const loadAi = useCallback(async (f: AiEventKind | "all") => {
-    setAiLoading(true);
-    setAiError(null);
-    try {
-      const url = f === "all" ? "/api/ai-events" : `/api/ai-events?kind=${f}`;
-      const res = await fetch(url, { cache: "no-store" });
-      const body = (await res.json()) as { ok: boolean; events?: AiEvent[]; error?: string };
-      if (!res.ok || !body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-      setAiItems(body.events ?? []);
-    } catch (e) {
-      setAiError((e as Error).message);
-    } finally {
-      setAiLoading(false);
-    }
-  }, []);
+  const loadAi = useCallback(
+    async (f: AiEventKind | "all", opts: { append?: boolean; offset?: number } = {}) => {
+      setAiLoading(true);
+      setAiError(null);
+      try {
+        const params = new URLSearchParams();
+        if (f !== "all") params.set("kind", f);
+        if (opts.offset && opts.offset > 0) params.set("offset", String(opts.offset));
+        const qs = params.toString();
+        const url = qs ? `/api/ai-events?${qs}` : "/api/ai-events";
+        const res = await fetch(url, { cache: "no-store" });
+        const body = (await res.json()) as {
+          ok: boolean;
+          events?: AiEvent[];
+          hasMore?: boolean;
+          error?: string;
+        };
+        if (!res.ok || !body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+        const next = body.events ?? [];
+        setAiItems((prev) => (opts.append ? [...prev, ...next] : next));
+        setAiHasMore(Boolean(body.hasMore));
+      } catch (e) {
+        setAiError((e as Error).message);
+      } finally {
+        setAiLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (tab === "extractions") load(filter);
@@ -362,11 +377,27 @@ export default function ReviewPage() {
                 </p>
               </div>
             ) : (
-              <ul className="space-y-3">
-                {aiItems.map((ev) => (
-                  <AiEventCard key={ev.id} event={ev} />
-                ))}
-              </ul>
+              <>
+                <ul className="space-y-3">
+                  {aiItems.map((ev) => (
+                    <AiEventCard key={ev.id} event={ev} />
+                  ))}
+                </ul>
+                {aiHasMore && (
+                  <div className="mt-4 flex justify-center">
+                    <button
+                      type="button"
+                      disabled={aiLoading}
+                      onClick={() =>
+                        loadAi(aiFilter, { append: true, offset: aiItems.length })
+                      }
+                      className="rounded border border-[color:var(--border)] px-4 py-1.5 text-xs font-medium hover:bg-[color:var(--border)] disabled:opacity-50"
+                    >
+                      {aiLoading ? "Loading…" : "Load more"}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
