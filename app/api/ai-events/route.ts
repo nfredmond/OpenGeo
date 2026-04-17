@@ -5,14 +5,19 @@ import { withRoute } from "@/lib/observability/with-route";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_KINDS = ["nl_sql", "nl_style"] as const;
+const ALLOWED_KINDS = [
+  "nl_sql",
+  "nl_style",
+  "crs_detect",
+  "column_type_infer",
+] as const;
 type AllowedKind = (typeof ALLOWED_KINDS)[number];
 const PAGE_SIZE = 50;
 
-// Lists recent AI audit events (nl_sql + nl_style only) for /review's audit
-// log tab. RLS on opengeo.ai_events restricts reads to org admins — non-admin
-// callers get zero rows back rather than an error, which lets the UI render
-// a single honest empty-state message.
+// Lists recent AI audit events for /review's audit log tab. RLS on
+// opengeo.ai_events restricts reads to org admins — non-admin callers
+// get zero rows back rather than an error, which lets the UI render a
+// single honest empty-state message.
 //
 // Pagination: ?offset=N returns rows [N, N + PAGE_SIZE). The response's
 // `hasMore` is set when the page came back full — a best-effort signal the UI
