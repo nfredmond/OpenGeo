@@ -19,7 +19,7 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "playwright test",
-    "gauntlet": "dotenv -e .env.local -- tsx scripts/phase1-gauntlet.ts",
+    "gauntlet": "dotenv -e .env.local -- tsx --conditions=react-server scripts/phase1-gauntlet.ts",
     "geo": "tsx cli/src/index.ts"
   },
   "dependencies": {

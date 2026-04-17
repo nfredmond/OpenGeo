@@ -11,7 +11,10 @@
 
 services:
   postgres:
-    image: postgis/postgis:15-3.4
+    build:
+      context: ./docker/postgres
+      dockerfile: Dockerfile
+    image: opengeo-postgres:15-3.4-pgvector
     container_name: opengeo-postgres
     environment:
       POSTGRES_USER: opengeo

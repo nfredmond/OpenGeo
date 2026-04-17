@@ -207,7 +207,7 @@ async function ensureFlight(projectId: string, flownAt: string, note: string): P
   if (existing.rows[0]) return existing.rows[0].id;
   const { rows } = await client.query<{ id: string }>(
     `insert into opengeo.drone_flights (project_id, flown_at, pilot, aircraft, metadata)
-     values ($1, $2::timestamptz, 'Demo pilot', 'DJI Mavic 3 (demo)', jsonb_build_object('displayName', $3))
+     values ($1, $2::timestamptz, 'Demo pilot', 'DJI Mavic 3 (demo)', jsonb_build_object('displayName', $3::text))
      returning id`,
     [projectId, flownAt, note],
   );

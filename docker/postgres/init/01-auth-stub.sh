@@ -35,4 +35,15 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   \$\$;
 
   grant usage on schema auth to authenticated, service_role, anon;
+
+  -- Stub auth.uid(): hosted Supabase reads the current user from the JWT
+  -- claims. Local Postgres has no JWT, so we read a per-session GUC that
+  -- test scripts can set via set_config('request.jwt.claim.sub', '<uuid>', true).
+  -- Falls back to NULL when unset, which matches Supabase's behavior for
+  -- unauthenticated callers and lets RLS deny-by-default work as intended.
+  create or replace function auth.uid() returns uuid
+    language sql stable as \$\$
+      select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+    \$\$;
+  grant execute on function auth.uid() to authenticated, service_role, anon, public;
 EOSQL
