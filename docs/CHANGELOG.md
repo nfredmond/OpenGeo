@@ -20,3 +20,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: Se
 - `geo` CLI scaffold with `init`, `dev`, `deploy`, `layers`, `query`, `style` stubs.
 - `.gitignore`, `.env.example` with full stack surface area.
 - Secret hygiene: Supabase credentials moved out of git-tracked markdown into `.env.local` + `private/`.
+- NL→SQL: rationale surfaced in the UI and auto-persisted via `ingest_geojson`.
+- AI map styling: natural-language → MapLibre style patch, preview-first, per-geometry allow-list.
+- Phase 1 exit gauntlet: `pnpm gauntlet` exercises NL→SQL + NL→style end-to-end.
+- AI audit log on `/review`: read-only history of the last 50 AI prompts (nl_sql + nl_style) with rationale and patch hints.
+- `/api/ai-events` endpoint with kind filter and `?offset=` pagination; `/review` AI-log tab gets a "Load more" button.
+- Local-gauntlet plumbing: custom Postgres image with pgvector; `auth.uid()` stub reading `request.jwt.claim.sub`; tsx `--conditions=react-server` so `server-only` resolves to its empty stub.
+- `docs/ADR/ADR-002-ai-feature-extractor-infra.md` — Modal-for-GPU proposal (awaiting sign-off).
+- Public GitHub repo: <https://github.com/nfredmond/OpenGeo> (AGPL-v3).
