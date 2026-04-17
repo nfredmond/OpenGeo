@@ -1,0 +1,40 @@
+# OpenGeo extractor — CPU-only local development image.
+#
+# This image runs the same FastAPI app that ships on Modal, but on CPU.
+# LangSAM inference is SLOW on CPU (multi-minute for real orthos); this
+# exists so developers can exercise the end-to-end pipeline without a
+# Modal account. For real workloads, deploy to Modal.
+#
+# Build: docker build -f Dockerfile.cpu -t opengeo-extractor:cpu services/extractor
+# Run:   docker run --rm -p 8100:8100 opengeo-extractor:cpu
+
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    OPENGEO_DEVICE=cpu
+
+WORKDIR /app
+
+# Native deps for rasterio, geopandas, samgeo (GDAL, GEOS, PROJ).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+     build-essential \
+     libgdal-dev \
+     gdal-bin \
+     libgeos-dev \
+     libproj-dev \
+     git \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml ./
+COPY opengeo_extractor ./opengeo_extractor
+
+# CPU-only torch is substantially smaller than the default CUDA build.
+RUN pip install --upgrade pip \
+  && pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu \
+  && pip install -e .
+
+EXPOSE 8100
+
+CMD ["uvicorn", "opengeo_extractor.app:app", "--host", "0.0.0.0", "--port", "8100"]

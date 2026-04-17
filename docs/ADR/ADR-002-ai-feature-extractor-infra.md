@@ -1,6 +1,6 @@
 # ADR-002 — AI feature extractor infrastructure: Modal for GPU, HTTP behind the `Extractor` interface
 
-- **Status:** Proposed (awaiting Nathaniel sign-off)
+- **Status:** Accepted (decisions on the four open questions recorded below; Modal account provisioning still on Nathaniel)
 - **Date:** 2026-04-16
 - **Owner:** Nathaniel Ford Redmond
 - **Related:** ADR-001 (locks in "GPU compute for SAM / Clay is not on Vercel"), `lib/extraction/types.ts` (the `Extractor` interface this ADR commits to keeping)
@@ -92,9 +92,11 @@ Re-open this ADR if any of these occur:
 - Replicate (or another managed endpoint) ships a first-class samgeo endpoint with the right feature set — may be worth re-evaluating "build vs. rent" at that point.
 - Meta changes SAM's license terms in a way that makes commercial redistribution onerous — likely forces a swap to an alternative model (Mask2Former, YOLOv8-seg, or a foundation model from a different lab).
 
-## Open questions (for Nathaniel)
+## Decisions on open questions
 
-1. **Warm pool vs. cold start.** Are we OK telling a planner "first extraction takes ~20s while the model spins up, subsequent ones are ~5s"? Or should we budget for a keepalive cron during business hours?
-2. **Prompt modalities.** The `ExtractionPrompt` union already covers text / point / bbox. Does v1 ship all three, or just text-prompt (simplest) with point/bbox as a fast-follow?
-3. **Tile-level cost accounting.** Do we want per-extraction Modal cost surfaced on the `ai_events` log so an org admin can see their AI spend in-product? Low effort, but adds a dependency on Modal's cost API and a column on `ai_events` (or a metadata JSON field).
-4. **Weights hosting.** R2 public bucket for SAM weights, or download from Meta's CDN each image build? R2 adds maybe $0.10/mo in storage but guarantees image-rebuild reliability.
+Resolved 2026-04-16 during the implementation milestone under autonomous authorization from Nathaniel ("you decide what's best"). Each decision is reversible; flag any of these for a revisit if reality diverges from the assumptions.
+
+1. **Warm pool vs. cold start → cold start is acceptable in v1.** Phase 1 volume (~10–100 extractions/month across all orgs) doesn't justify the $12–20/mo of a keepalive function. The `/api/orthomosaics/[id]/extract` response already carries `latencyMs`; we surface a "spinning up model" state in the UI for the first extraction after idle. Revisit if a real user reports unacceptable first-hit latency.
+2. **Prompt modalities → text-prompt only in v1.** Matches the "ask the AI in English" mental model that NL→SQL and NL→Style already establish. The `ExtractionPrompt` union stays as-is so point/bbox adds are non-breaking; the Python service accepts them in the request schema but returns a 422 if given — explicit rather than silent. Fast-follow lands once we have a UI affordance for drawing points/boxes.
+3. **Per-extraction cost accounting → not in v1.** At Phase 1 spend ($1–5/mo) a line-item in the audit log is noise. The Python service does write an `estimated_cost_cents` field to `metrics.extras` when Modal surfaces it; the UI ignores it. Revisit when monthly spend crosses ~$50 or when a customer asks.
+4. **Weights hosting → R2 public bucket.** The $0.10/mo storage cost is rounding error against the operational pain of a Meta CDN URL breaking mid-build. A one-shot bootstrap script (`services/extractor/scripts/sync_weights.py`) downloads from Meta's CDN and pushes to `R2_BUCKET/models/sam/vit_h.pth` (and matching for GroundingDINO). Image builds pull from R2. If R2 itself goes down, the Modal image's layer cache still has the weights baked in from the last successful build.

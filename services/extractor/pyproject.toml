@@ -1,0 +1,51 @@
+[project]
+name = "opengeo-extractor"
+version = "0.1.0"
+description = "OpenGeo AI feature extractor — FastAPI service wrapping segment-geospatial (LangSAM) for text-prompted geospatial segmentation."
+authors = [{ name = "Nathaniel Ford Redmond", email = "nfredmond@gmail.com" }]
+license = { text = "AGPL-3.0-or-later" }
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.10",
+  "python-multipart>=0.0.20",
+  "segment-geospatial>=0.12",
+  "torch>=2.4",
+  "torchvision>=0.19",
+  "rasterio>=1.4",
+  "shapely>=2.0",
+  "geopandas>=1.0",
+  "pyproj>=3.7",
+  "numpy>=2.0",
+  "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+modal = ["modal>=0.66"]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.7",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["opengeo_extractor*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

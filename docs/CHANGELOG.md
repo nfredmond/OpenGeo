@@ -26,5 +26,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: Se
 - AI audit log on `/review`: read-only history of the last 50 AI prompts (nl_sql + nl_style) with rationale and patch hints.
 - `/api/ai-events` endpoint with kind filter and `?offset=` pagination; `/review` AI-log tab gets a "Load more" button.
 - Local-gauntlet plumbing: custom Postgres image with pgvector; `auth.uid()` stub reading `request.jwt.claim.sub`; tsx `--conditions=react-server` so `server-only` resolves to its empty stub.
-- `docs/ADR/ADR-002-ai-feature-extractor-infra.md` — Modal-for-GPU proposal (awaiting sign-off).
+- `docs/ADR/ADR-002-ai-feature-extractor-infra.md` — Modal-for-GPU decision, accepted with recorded answers on all four open questions.
+- `services/extractor/` — Python FastAPI + samgeo LangSAM service, ready for `modal deploy` (Modal account setup stays with Nathaniel). Includes `Dockerfile.cpu` for local dev, Modal wrapper, R2 weight-sync script, and route/schema tests.
+- `HttpExtractor` on the Next.js side. `getExtractor()` dispatches on `OPENGEO_EXTRACTOR={mock,http}`.
 - Public GitHub repo: <https://github.com/nfredmond/OpenGeo> (AGPL-v3).
+- GitHub Actions CI (lint + typecheck + test) and Dependabot grouped by stack area.

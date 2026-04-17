@@ -86,6 +86,38 @@ The Supabase MCP endpoint is already documented in `CLAUDE.md` if you want Claud
 - Daily AI spend > configurable cap — email + Slack.
 - Martin tile latency p95 > 500 ms for 5 min.
 
+## AI feature extractor (Python service at `services/extractor/`)
+
+A separate FastAPI app that wraps `samgeo.LangSAM` (SAM + GroundingDINO). Invoked via HTTP by the Next.js `HttpExtractor` when `OPENGEO_EXTRACTOR=http`. Contract and internals documented in [`services/extractor/README.md`](../services/extractor/README.md); architecture rationale in [ADR-002](ADR/ADR-002-ai-feature-extractor-infra.md).
+
+**Local dev (CPU):**
+
+```bash
+docker compose --profile extractor up -d extractor
+# Then in .env.local:
+#   OPENGEO_EXTRACTOR=http
+#   OPENGEO_EXTRACTOR_URL=http://localhost:8100
+#   OPENGEO_EXTRACTOR_TOKEN=
+```
+
+CPU inference is slow (3–10 min per tile). Use it to exercise the pipeline, not for real work.
+
+**Production (Modal):**
+
+```bash
+cd services/extractor
+modal setup                                     # once per dev machine
+modal secret create opengeo-extractor \
+  OPENGEO_EXTRACTOR_TOKEN=<token>               # once per environment
+modal deploy modal_app.py                       # deploys the GPU function
+```
+
+Modal emits a URL. Set it as `OPENGEO_EXTRACTOR_URL` in Vercel, along with `OPENGEO_EXTRACTOR=http` and `OPENGEO_EXTRACTOR_TOKEN=<same token>`. The token is validated by the Python app's bearer middleware.
+
+**Token rotation:** generate a new token (`openssl rand -hex 32`), update the Modal secret and the Vercel env var in lockstep, redeploy both. Old deploys keep working until rotated out.
+
+**Weights:** SAM ViT-H (~2.5GB) and GroundingDINO (~700MB) are hosted on R2 — one-shot bootstrap via `python services/extractor/scripts/sync_weights.py` (requires R2 creds in env). Subsequent Modal image builds pull from R2.
+
 ## Known one-time hazards
 
 - The direct Postgres connection string bypasses the Supabase connection pooler. Use it only for migrations and CLI — request-path queries should go through PgBouncer (`?pgbouncer=true&connection_limit=1` in the connection string).

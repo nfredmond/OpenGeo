@@ -74,6 +74,24 @@ services:
     volumes:
       - nodeodm-data:/var/www/data
 
+  # AI feature extractor (CPU-only dev image). LangSAM + GroundingDINO over
+  # FastAPI. Not started by default — `docker compose --profile extractor up`
+  # pulls this. Torch + GDAL + samgeo is a multi-GB image.
+  # Production deploys to Modal; see services/extractor/README.md.
+  extractor:
+    build:
+      context: ./services/extractor
+      dockerfile: Dockerfile.cpu
+    image: opengeo-extractor:cpu
+    container_name: opengeo-extractor
+    profiles: ["extractor"]
+    environment:
+      OPENGEO_LOG_LEVEL: INFO
+      OPENGEO_DEVICE: cpu
+      # Leave OPENGEO_EXTRACTOR_TOKEN unset in dev so auth is skipped.
+    ports:
+      - "8100:8100"
+
 volumes:
   pgdata:
   nodeodm-data:
