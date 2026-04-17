@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import type { LayerStylePatch } from "./map-canvas";
 import type { ClientLayer } from "./layer-panel";
 
@@ -62,12 +62,64 @@ export function StyleEditor({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [lastApplied, setLastApplied] = useState<LayerStylePatch | null>(initial);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiRationale, setAiRationale] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   useEffect(() => {
     setText(JSON.stringify(initial, null, 2));
     setLastApplied(initial);
     setError(null);
+    setAiRationale(null);
+    setAiError(null);
   }, [initial]);
+
+  async function runAi() {
+    if (!aiPrompt.trim() || aiBusy) return;
+    setAiBusy(true);
+    setAiError(null);
+    setAiRationale(null);
+    try {
+      const res = await fetch(`/api/layers/${layer.id}/ai-style`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: aiPrompt }),
+      });
+      const body = (await res.json()) as
+        | { ok: true; label: string; patch: LayerStylePatch; rationale: string }
+        | { ok: false; error: string };
+      if (!res.ok || !body.ok) {
+        setAiError(body.ok === false ? body.error : "AI styling failed.");
+        return;
+      }
+
+      // Merge AI patch on top of whatever's in the textarea so the user
+      // doesn't lose properties they already tweaked by hand.
+      let current: LayerStylePatch = {};
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === "object") current = parsed;
+      } catch {
+        // Current text is malformed — fall through with empty base.
+      }
+      const mergedPaint = { ...(current.paint ?? {}), ...(body.patch.paint ?? {}) };
+      const mergedLayout = { ...(current.layout ?? {}), ...(body.patch.layout ?? {}) };
+      const merged: LayerStylePatch = {};
+      if (Object.keys(mergedPaint).length > 0) merged.paint = mergedPaint;
+      if (Object.keys(mergedLayout).length > 0) merged.layout = mergedLayout;
+
+      setText(JSON.stringify(merged, null, 2));
+      setLastApplied(merged);
+      setAiRationale(body.rationale);
+      setError(null);
+      onApply(merged);
+    } catch (e) {
+      setAiError((e as Error).message);
+    } finally {
+      setAiBusy(false);
+    }
+  }
 
   const parsePatch = (): LayerStylePatch | null => {
     try {
@@ -105,6 +157,52 @@ export function StyleEditor({
         </header>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="mb-4 rounded border border-[color:var(--border)] bg-[color:var(--background)]/60 p-3">
+            <div className="mb-2 flex items-center gap-2">
+              <Sparkles size={13} className="text-[color:var(--accent)]" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--muted)]">
+                Style with words
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void runAi();
+                  }
+                }}
+                placeholder="e.g. dark red fill with thin white stroke, 40% opacity"
+                disabled={aiBusy}
+                className="flex-1 rounded border border-[color:var(--border)] bg-[color:var(--card)] px-2 py-1.5 text-xs text-[color:var(--foreground)] outline-none focus:border-[color:var(--accent)] disabled:opacity-60"
+              />
+              <button
+                type="button"
+                onClick={() => void runAi()}
+                disabled={aiBusy || !aiPrompt.trim()}
+                className="rounded bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-[color:var(--accent-foreground)] transition hover:opacity-90 disabled:opacity-50"
+              >
+                {aiBusy ? "Thinking…" : "Apply AI style"}
+              </button>
+            </div>
+            {aiRationale && (
+              <div className="mt-2 rounded border border-[color:var(--border)] bg-[color:var(--card)] px-2 py-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--muted)]">
+                  Model rationale
+                </p>
+                <p className="mt-0.5 text-[11px] leading-snug text-[color:var(--foreground)]">
+                  {aiRationale}
+                </p>
+              </div>
+            )}
+            {aiError && (
+              <p className="mt-2 text-[11px] text-red-500">{aiError}</p>
+            )}
+          </div>
+
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
