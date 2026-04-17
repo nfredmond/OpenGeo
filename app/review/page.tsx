@@ -23,6 +23,20 @@ type Extraction = {
   };
 };
 
+type AiEventKind = "nl_sql" | "nl_style";
+
+type AiEvent = {
+  id: string;
+  kind: AiEventKind;
+  model: string;
+  prompt: string | null;
+  response_summary: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+};
+
+type Tab = "extractions" | "ai_log";
+
 const FILTERS: Array<{ value: QaStatus | "all"; label: string }> = [
   { value: "pending", label: "Needs review" },
   { value: "human_reviewed", label: "Approved" },
@@ -30,12 +44,27 @@ const FILTERS: Array<{ value: QaStatus | "all"; label: string }> = [
   { value: "all", label: "All" },
 ];
 
+const AI_FILTERS: Array<{ value: AiEventKind | "all"; label: string }> = [
+  { value: "all", label: "All prompts" },
+  { value: "nl_sql", label: "NL → SQL" },
+  { value: "nl_style", label: "NL → Style" },
+];
+
 export default function ReviewPage() {
+  const [tab, setTab] = useState<Tab>("extractions");
+
+  // Extraction-review state (existing).
   const [filter, setFilter] = useState<QaStatus | "all">("pending");
   const [items, setItems] = useState<Extraction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+
+  // AI-log state (new); kept separate so switching tabs doesn't clobber.
+  const [aiFilter, setAiFilter] = useState<AiEventKind | "all">("all");
+  const [aiItems, setAiItems] = useState<AiEvent[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const load = useCallback(async (f: QaStatus | "all") => {
     setLoading(true);
@@ -53,9 +82,29 @@ export default function ReviewPage() {
     }
   }, []);
 
+  const loadAi = useCallback(async (f: AiEventKind | "all") => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const url = f === "all" ? "/api/ai-events" : `/api/ai-events?kind=${f}`;
+      const res = await fetch(url, { cache: "no-store" });
+      const body = (await res.json()) as { ok: boolean; events?: AiEvent[]; error?: string };
+      if (!res.ok || !body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      setAiItems(body.events ?? []);
+    } catch (e) {
+      setAiError((e as Error).message);
+    } finally {
+      setAiLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    load(filter);
-  }, [filter, load]);
+    if (tab === "extractions") load(filter);
+  }, [tab, filter, load]);
+
+  useEffect(() => {
+    if (tab === "ai_log") loadAi(aiFilter);
+  }, [tab, aiFilter, loadAi]);
 
   const decide = useCallback(
     async (id: string, qaStatus: QaStatus) => {
@@ -109,56 +158,93 @@ export default function ReviewPage() {
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-8">
-        <section className="mb-6">
-          <h1 className="text-xl font-semibold tracking-tight">AI extraction review</h1>
+        <section className="mb-5">
+          <h1 className="text-xl font-semibold tracking-tight">
+            {tab === "extractions" ? "AI extraction review" : "AI audit log"}
+          </h1>
           <p className="mt-1 max-w-2xl text-sm text-[color:var(--muted)]">
-            Planner-in-the-loop QA. Every layer produced by AI feature extraction
-            sits here until a human editor approves or rejects it. Approved
-            layers carry a <code className="font-mono text-xs">human_reviewed</code>
-            tag so downstream consumers know the geometry has been inspected.
+            {tab === "extractions" ? (
+              <>
+                Planner-in-the-loop QA. Every layer produced by AI feature extraction
+                sits here until a human editor approves or rejects it. Approved
+                layers carry a <code className="font-mono text-xs">human_reviewed</code>
+                tag so downstream consumers know the geometry has been inspected.
+              </>
+            ) : (
+              <>
+                Read-only history of the last 50 AI prompts in this org —
+                natural-language SQL queries and natural-language style requests —
+                with the rationale the model returned. Use it to audit what the AI
+                has been asked for and what it decided.
+              </>
+            )}
           </p>
         </section>
 
-        <div className="mb-4 flex items-center gap-2">
-          {FILTERS.map((f) => (
+        <div className="mb-4 flex items-center gap-1 border-b border-[color:var(--border)]">
+          {(
+            [
+              { value: "extractions", label: "Extraction review" },
+              { value: "ai_log", label: "AI audit log" },
+            ] as Array<{ value: Tab; label: string }>
+          ).map((t) => (
             <button
-              key={f.value}
+              key={t.value}
               type="button"
-              onClick={() => setFilter(f.value)}
+              onClick={() => setTab(t.value)}
               className={
-                filter === f.value
-                  ? "rounded border border-[color:var(--accent)] bg-[color:var(--accent)]/10 px-3 py-1 text-xs font-semibold text-[color:var(--accent)]"
-                  : "rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+                tab === t.value
+                  ? "-mb-px border-b-2 border-[color:var(--accent)] px-3 py-2 text-xs font-semibold text-[color:var(--foreground)]"
+                  : "-mb-px border-b-2 border-transparent px-3 py-2 text-xs text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
               }
             >
-              {f.label}
+              {t.label}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={() => load(filter)}
-            className="ml-auto rounded border border-[color:var(--border)] px-3 py-1 text-xs font-medium hover:bg-[color:var(--border)]"
-          >
-            Refresh
-          </button>
         </div>
 
-        {error && (
-          <div className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-600">
-            {error}
-          </div>
-        )}
+        {tab === "extractions" && (
+          <>
+            <div className="mb-4 flex items-center gap-2">
+              {FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setFilter(f.value)}
+                  className={
+                    filter === f.value
+                      ? "rounded border border-[color:var(--accent)] bg-[color:var(--accent)]/10 px-3 py-1 text-xs font-semibold text-[color:var(--accent)]"
+                      : "rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+                  }
+                >
+                  {f.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => load(filter)}
+                className="ml-auto rounded border border-[color:var(--border)] px-3 py-1 text-xs font-medium hover:bg-[color:var(--border)]"
+              >
+                Refresh
+              </button>
+            </div>
 
-        {loading && items.length === 0 ? (
-          <p className="text-sm text-[color:var(--muted)]">Loading…</p>
-        ) : items.length === 0 ? (
-          <p className="rounded-md border border-[color:var(--border)] bg-[color:var(--card)] p-6 text-sm text-[color:var(--muted)]">
-            {filter === "pending"
-              ? "Inbox empty — all AI extractions have been reviewed."
-              : "No extractions match this filter."}
-          </p>
-        ) : (
-          <ul className="space-y-3">
+            {error && (
+              <div className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-600">
+                {error}
+              </div>
+            )}
+
+            {loading && items.length === 0 ? (
+              <p className="text-sm text-[color:var(--muted)]">Loading…</p>
+            ) : items.length === 0 ? (
+              <p className="rounded-md border border-[color:var(--border)] bg-[color:var(--card)] p-6 text-sm text-[color:var(--muted)]">
+                {filter === "pending"
+                  ? "Inbox empty — all AI extractions have been reviewed."
+                  : "No extractions match this filter."}
+              </p>
+            ) : (
+              <ul className="space-y-3">
             {items.map((item) => {
               const busy = pendingIds.has(item.id);
               const project = item.orthomosaic.flight.project;
@@ -229,9 +315,132 @@ export default function ReviewPage() {
                 </li>
               );
             })}
-          </ul>
+              </ul>
+            )}
+          </>
+        )}
+
+        {tab === "ai_log" && (
+          <>
+            <div className="mb-4 flex items-center gap-2">
+              {AI_FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setAiFilter(f.value)}
+                  className={
+                    aiFilter === f.value
+                      ? "rounded border border-[color:var(--accent)] bg-[color:var(--accent)]/10 px-3 py-1 text-xs font-semibold text-[color:var(--accent)]"
+                      : "rounded border border-[color:var(--border)] px-3 py-1 text-xs text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+                  }
+                >
+                  {f.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => loadAi(aiFilter)}
+                className="ml-auto rounded border border-[color:var(--border)] px-3 py-1 text-xs font-medium hover:bg-[color:var(--border)]"
+              >
+                Refresh
+              </button>
+            </div>
+
+            {aiError && (
+              <div className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-600">
+                {aiError}
+              </div>
+            )}
+
+            {aiLoading && aiItems.length === 0 ? (
+              <p className="text-sm text-[color:var(--muted)]">Loading…</p>
+            ) : aiItems.length === 0 ? (
+              <div className="rounded-md border border-[color:var(--border)] bg-[color:var(--card)] p-6 text-sm text-[color:var(--muted)]">
+                <p>
+                  No AI prompts to show. Either none have been logged yet, or
+                  AI audit entries are visible to org admins only.
+                </p>
+              </div>
+            ) : (
+              <ul className="space-y-3">
+                {aiItems.map((ev) => (
+                  <AiEventCard key={ev.id} event={ev} />
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </main>
     </div>
+  );
+}
+
+function AiEventCard({ event }: { event: AiEvent }) {
+  const kindLabel = event.kind === "nl_sql" ? "NL → SQL" : "NL → Style";
+  const metadata = event.metadata ?? {};
+  const rationale =
+    typeof metadata.rationale === "string"
+      ? (metadata.rationale as string)
+      : null;
+  const summary = event.response_summary ?? "";
+
+  // For nl_style events, surface a compact list of paint/layout keys so the
+  // reader can see at-a-glance what the model actually changed. For nl_sql,
+  // response_summary already carries the truncated rationale from the logger.
+  let patchHint: string | null = null;
+  if (event.kind === "nl_style") {
+    const patch = (metadata.patch ?? null) as
+      | { paint?: Record<string, unknown>; layout?: Record<string, unknown> }
+      | null;
+    const paintKeys = patch?.paint ? Object.keys(patch.paint) : [];
+    const layoutKeys = patch?.layout ? Object.keys(patch.layout) : [];
+    const parts: string[] = [];
+    if (paintKeys.length > 0) parts.push(`paint: ${paintKeys.join(", ")}`);
+    if (layoutKeys.length > 0) parts.push(`layout: ${layoutKeys.join(", ")}`);
+    patchHint = parts.length > 0 ? parts.join(" · ") : "declined (empty patch)";
+  }
+
+  const promptFull = event.prompt ?? "(no prompt)";
+  const promptTruncated =
+    promptFull.length > 200 ? `${promptFull.slice(0, 200)}…` : promptFull;
+
+  return (
+    <li className="rounded-md border border-[color:var(--border)] bg-[color:var(--card)] p-4">
+      <div className="flex items-center gap-2">
+        <span className="rounded bg-[color:var(--background)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[color:var(--muted)]">
+          {kindLabel}
+        </span>
+        <span className="text-[11px] text-[color:var(--muted)]">
+          {new Date(event.created_at).toLocaleString()}
+        </span>
+        <span className="text-[11px] text-[color:var(--muted)]">
+          model · <code className="font-mono">{event.model}</code>
+        </span>
+      </div>
+      <p
+        className="mt-2 text-sm text-[color:var(--foreground)]"
+        title={promptFull}
+      >
+        {promptTruncated}
+      </p>
+      {rationale && (
+        <div className="mt-2 rounded border border-[color:var(--border)] bg-[color:var(--background)]/60 px-2 py-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--muted)]">
+            Rationale
+          </p>
+          <p className="mt-0.5 text-[11px] leading-snug text-[color:var(--foreground)]">
+            {rationale}
+          </p>
+        </div>
+      )}
+      {!rationale && summary && (
+        <p className="mt-2 text-[11px] text-[color:var(--muted)]">{summary}</p>
+      )}
+      {patchHint && (
+        <p className="mt-2 text-[11px] text-[color:var(--muted)]">
+          <code className="font-mono">{patchHint}</code>
+        </p>
+      )}
+    </li>
   );
 }
