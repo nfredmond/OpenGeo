@@ -39,6 +39,27 @@ opengeo.datasets(id uuid, project_id uuid, name text, kind text, crs int, bbox g
 opengeo.projects(id uuid, org_id uuid, name text, site_geom geometry)
 opengeo.drone_flights(id uuid, project_id uuid, flown_at timestamptz, site_geom geometry)
 opengeo.orthomosaics(id uuid, flight_id uuid, status text, cog_url text, bbox geometry)
+
+Working with features.properties (jsonb):
+- Property keys are dataset-defined and NOT standardized. Different uploads expose different keys; AI-extracted layers commonly include 'class' (e.g. "building", "road"), 'score', and a bbox-derived 'area_sqm'. Uploaded datasets often expose 'name', 'id', or client-specific keys.
+- Realistic extraction examples:
+  - filter by type:        WHERE properties->>'class' = 'building'
+  - filter by name:        WHERE properties->>'name' ILIKE '%main%'
+  - numeric comparison:    WHERE (properties->>'area_sqm')::numeric > 200
+  - boolean comparison:    WHERE (properties->>'active')::boolean IS true
+- When you are uncertain a key exists on the layer, prefer an existence filter first: WHERE properties ? 'area_sqm'. This lets the query stay valid on layers that happen to not carry the key.
+- All jsonb scalars arrive as text. Cast numeric and boolean properties explicitly: (properties->>'foo')::numeric, (properties->>'flag')::boolean. Forgetting the cast produces lexicographic comparisons ('200' < '50') rather than numeric.
+
+Spatial filters and ST_DWithin:
+- For true-distance filtering use ST_DWithin with ::geography on BOTH geometries. Distance is in meters when both sides are geography.
+- Exemplar — features within 100m of a reference feature:
+    SELECT f.geom, f.properties
+    FROM opengeo.features f, opengeo.features ref
+    WHERE ref.id = '<ref-uuid>'
+      AND ST_DWithin(f.geom::geography, ref.geom::geography, 100)
+    LIMIT 10000
+- Cast to ::geography ONLY for distance filters. Casting to geography in ST_Intersects or other non-distance predicates makes the query index-hostile and can miss the GiST index on geom.
+- For bbox / overlap / containment filters stay in geometry space: ST_Intersects(a.geom, b.geom), ST_Contains(a.geom, b.geom), a.geom && b.geom.
 `;
 
 export async function nlToSql(prompt: string): Promise<NlSqlResult> {

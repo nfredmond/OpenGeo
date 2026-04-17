@@ -42,9 +42,11 @@ export const POST = withRoute("ai.query", async (req) => {
 
   // Resolve the signed-in user (best-effort). Audit logging uses this when
   // present; the query itself runs against the read-only role regardless.
+  // We hoist the client so the happy-path branch can reuse it to persist the
+  // result as a layer via ingest_geojson.
+  const supabase = await supabaseServer();
   let actorId: string | null = null;
   try {
-    const supabase = await supabaseServer();
     const { data } = await supabase.auth.getUser();
     actorId = data.user?.id ?? null;
   } catch {
@@ -100,6 +102,45 @@ export const POST = withRoute("ai.query", async (req) => {
       type: "FeatureCollection",
       features: result.rows.map((r) => r.feature),
     };
+
+    // Best-effort persistence: if the caller is signed in and has a default
+    // project, mirror uploads and extractions by writing the result as a
+    // layer via opengeo.ingest_geojson. Preview is the primary contract —
+    // never fail the response because of a persistence error.
+    let layerId: string | null = null;
+    let warning: string | null = null;
+    if (fc.features.length === 0) {
+      warning = "Query returned zero features — not saved.";
+    } else if (!actorId) {
+      warning = "Sign in to save AI queries as layers.";
+    } else {
+      const { data: projectId, error: projectErr } = await supabase.rpc(
+        "default_project_for",
+        { p_user_id: actorId },
+      );
+      if (projectErr) {
+        console.error("ai/query: default_project_for failed:", projectErr);
+        warning = `Persist failed: ${projectErr.message}`;
+      } else if (!projectId) {
+        warning = "No default project found — result not saved.";
+      } else {
+        const { data: newLayerId, error: ingestErr } = await supabase.rpc(
+          "ingest_geojson",
+          {
+            p_project_id: projectId,
+            p_name: generated.label,
+            p_feature_collection: fc,
+          },
+        );
+        if (ingestErr) {
+          console.error("ai/query: ingest_geojson failed:", ingestErr);
+          warning = `Persist failed: ${ingestErr.message}`;
+        } else {
+          layerId = newLayerId as string;
+        }
+      }
+    }
+
     await logAiEvent({
       orgId: null,
       actorId,
@@ -107,7 +148,11 @@ export const POST = withRoute("ai.query", async (req) => {
       model: env().ANTHROPIC_MODEL,
       prompt,
       responseSummary: `OK: ${fc.features.length} features`,
-      metadata: { sql: generated.sql, rationale: generated.rationale },
+      metadata: {
+        sql: generated.sql,
+        rationale: generated.rationale,
+        layerId,
+      },
     });
     return NextResponse.json({
       ok: true,
@@ -115,6 +160,8 @@ export const POST = withRoute("ai.query", async (req) => {
       label: generated.label,
       rationale: generated.rationale,
       featureCollection: fc,
+      layerId,
+      warning,
     });
   } catch (e) {
     const msg = (e as Error).message;

@@ -13,6 +13,8 @@ export function AiQueryPanel({
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [sql, setSql] = useState<string | null>(null);
+  const [rationale, setRationale] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function run(e: React.FormEvent) {
@@ -21,6 +23,8 @@ export function AiQueryPanel({
     setBusy(true);
     setError(null);
     setSql(null);
+    setRationale(null);
+    setWarning(null);
 
     try {
       const res = await fetch("/api/ai/query", {
@@ -34,6 +38,9 @@ export function AiQueryPanel({
             sql: string;
             featureCollection: GeoJSON.FeatureCollection;
             label: string;
+            rationale: string;
+            layerId: string | null;
+            warning: string | null;
           }
         | { ok: false; error: string; sql?: string };
       if (!res.ok || !body.ok) {
@@ -43,12 +50,18 @@ export function AiQueryPanel({
       }
 
       setSql(body.sql);
+      setRationale(body.rationale);
+      setWarning(body.warning);
       onLayerAdded({
-        id: `ai-${Date.now().toString(36)}`,
+        // Prefer the persisted layer id so reload rehydrates the same row;
+        // fall back to a client-generated id for preview-only cases (zero
+        // features / anonymous / no default project).
+        id: body.layerId ?? `ai-${Date.now().toString(36)}`,
         name: body.label,
         color: pickColor(),
         visible: true,
         source: "ai-query",
+        kind: "vector",
         data: body.featureCollection,
         featureCount: body.featureCollection.features.length,
       });
@@ -85,10 +98,25 @@ export function AiQueryPanel({
         </button>
       </form>
 
+      {rationale && (
+        <div className="mt-3 rounded border border-[color:var(--border)] bg-[color:var(--card)] px-2 py-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--muted)]">
+            Model rationale
+          </p>
+          <p className="mt-0.5 text-[11px] leading-snug text-[color:var(--foreground)]">
+            {rationale}
+          </p>
+        </div>
+      )}
       {sql && (
-        <pre className="mt-3 max-h-40 overflow-auto rounded border border-[color:var(--border)] bg-[color:var(--card)] p-2 text-[11px] leading-snug text-[color:var(--muted)]">
+        <pre className="mt-2 max-h-40 overflow-auto rounded border border-[color:var(--border)] bg-[color:var(--card)] p-2 text-[11px] leading-snug text-[color:var(--muted)]">
           {sql}
         </pre>
+      )}
+      {warning && (
+        <p className="mt-2 text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+          {warning}
+        </p>
       )}
       {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
       <p className="mt-2 text-[11px] leading-snug text-[color:var(--muted)]">
