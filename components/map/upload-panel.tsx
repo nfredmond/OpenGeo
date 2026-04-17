@@ -22,29 +22,72 @@ export function UploadPanel({
       setError(null);
       if (!files || files.length === 0) return;
       const file = files[0];
-      if (!file.name.toLowerCase().endsWith(".geojson") && !file.name.toLowerCase().endsWith(".json")) {
-        setError("Only .geojson / .json supported in Phase 0. Shapefile + GeoPackage ship in Phase 1.");
+      const lower = file.name.toLowerCase();
+      const isGeoJson = lower.endsWith(".geojson") || lower.endsWith(".json");
+      const isShapefileZip = lower.endsWith(".zip");
+      if (!isGeoJson && !isShapefileZip) {
+        setError("Supported formats: .geojson / .json, or a .zip containing a shapefile triad. GeoPackage ships in Phase 2.");
         return;
       }
       setUploading(true);
       try {
-        const text = await file.text();
-        const parsed = JSON.parse(text);
-        const fc = normalize(parsed);
-        const name = file.name.replace(/\.(geojson|json)$/i, "");
+        const name = file.name.replace(/\.(geojson|json|zip)$/i, "");
+        let body: { ok: boolean; layerId?: string; error?: string };
+        let featureCount = 0;
+        let clientFc: GeoJSON.FeatureCollection | null = null;
 
-        const response = await fetch("/api/datasets/upload", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name, featureCollection: fc, projectId }),
-        });
-        const body = (await response.json().catch(() => ({}))) as {
-          ok: boolean;
-          layerId?: string;
-          error?: string;
-        };
-        if (!response.ok || !body.ok || !body.layerId) {
-          throw new Error(body.error ?? `Upload failed (${response.status}).`);
+        if (isShapefileZip) {
+          const form = new FormData();
+          form.append("file", file);
+          form.append("name", name);
+          if (projectId) form.append("projectId", projectId);
+          const response = await fetch("/api/datasets/upload", {
+            method: "POST",
+            body: form,
+          });
+          body = (await response.json().catch(() => ({}))) as {
+            ok: boolean;
+            layerId?: string;
+            error?: string;
+          };
+          if (!response.ok || !body.ok || !body.layerId) {
+            throw new Error(body.error ?? `Upload failed (${response.status}).`);
+          }
+          // Server decoded + reprojected the shapefile; fetch the finished
+          // feature collection so the layer can render immediately without a
+          // second user click.
+          const detail = await fetch(`/api/layers/${body.layerId}`, {
+            cache: "no-store",
+          });
+          if (detail.ok) {
+            const d = (await detail.json().catch(() => ({}))) as {
+              featureCollection?: GeoJSON.FeatureCollection;
+              layer?: { feature_count?: number };
+            };
+            if (d.featureCollection) {
+              clientFc = d.featureCollection;
+              featureCount =
+                d.layer?.feature_count ?? clientFc.features.length;
+            }
+          }
+        } else {
+          const text = await file.text();
+          const parsed = JSON.parse(text);
+          clientFc = normalize(parsed);
+          featureCount = clientFc.features.length;
+          const response = await fetch("/api/datasets/upload", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ name, featureCollection: clientFc, projectId }),
+          });
+          body = (await response.json().catch(() => ({}))) as {
+            ok: boolean;
+            layerId?: string;
+            error?: string;
+          };
+          if (!response.ok || !body.ok || !body.layerId) {
+            throw new Error(body.error ?? `Upload failed (${response.status}).`);
+          }
         }
 
         onLayerAdded({
@@ -53,8 +96,8 @@ export function UploadPanel({
           color: pickColor(),
           visible: true,
           source: "upload",
-          data: fc,
-          featureCount: fc.features.length,
+          data: clientFc ?? { type: "FeatureCollection", features: [] },
+          featureCount,
         });
       } catch (e) {
         setError((e as Error).message);
@@ -86,7 +129,7 @@ export function UploadPanel({
       >
         <Upload size={16} className="text-[color:var(--muted)]" />
         <span className="text-xs font-medium">
-          {uploading ? "Uploading…" : "Drop a GeoJSON here"}
+          {uploading ? "Uploading…" : "Drop a GeoJSON or shapefile .zip"}
         </span>
         <span className="text-[10px] text-[color:var(--muted)]">
           or click to choose
@@ -94,7 +137,7 @@ export function UploadPanel({
         <input
           ref={inputRef}
           type="file"
-          accept=".geojson,.json,application/json,application/geo+json"
+          accept=".geojson,.json,application/json,application/geo+json,.zip,application/zip"
           hidden
           disabled={uploading}
           onChange={(e) => void onFiles(e.target.files)}

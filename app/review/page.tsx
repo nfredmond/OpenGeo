@@ -23,7 +23,11 @@ type Extraction = {
   };
 };
 
-type AiEventKind = "nl_sql" | "nl_style";
+type AiEventKind =
+  | "nl_sql"
+  | "nl_style"
+  | "crs_detect"
+  | "column_type_infer";
 
 type AiEvent = {
   id: string;
@@ -44,10 +48,19 @@ const FILTERS: Array<{ value: QaStatus | "all"; label: string }> = [
   { value: "all", label: "All" },
 ];
 
+const KIND_LABELS: Record<AiEventKind, string> = {
+  nl_sql: "NL → SQL",
+  nl_style: "NL → Style",
+  crs_detect: "CRS detect",
+  column_type_infer: "Column types",
+};
+
 const AI_FILTERS: Array<{ value: AiEventKind | "all"; label: string }> = [
   { value: "all", label: "All prompts" },
   { value: "nl_sql", label: "NL → SQL" },
   { value: "nl_style", label: "NL → Style" },
+  { value: "crs_detect", label: "CRS detect" },
+  { value: "column_type_infer", label: "Column types" },
 ];
 
 export default function ReviewPage() {
@@ -187,10 +200,11 @@ export default function ReviewPage() {
               </>
             ) : (
               <>
-                Read-only history of the last 50 AI prompts in this org —
-                natural-language SQL queries and natural-language style requests —
-                with the rationale the model returned. Use it to audit what the AI
-                has been asked for and what it decided.
+                Read-only history of the last 50 AI decisions in this org —
+                natural-language SQL, map styling, CRS auto-detect on ingest, and
+                column-type inference — with the rationale the model returned.
+                Use it to audit what the AI has been asked for and what it
+                decided.
               </>
             )}
           </p>
@@ -407,7 +421,7 @@ export default function ReviewPage() {
 }
 
 function AiEventCard({ event }: { event: AiEvent }) {
-  const kindLabel = event.kind === "nl_sql" ? "NL → SQL" : "NL → Style";
+  const kindLabel = KIND_LABELS[event.kind] ?? event.kind;
   const metadata = event.metadata ?? {};
   const rationale =
     typeof metadata.rationale === "string"
@@ -415,9 +429,9 @@ function AiEventCard({ event }: { event: AiEvent }) {
       : null;
   const summary = event.response_summary ?? "";
 
-  // For nl_style events, surface a compact list of paint/layout keys so the
-  // reader can see at-a-glance what the model actually changed. For nl_sql,
-  // response_summary already carries the truncated rationale from the logger.
+  // Each kind gets a compact one-line hint so the reader can see at-a-glance
+  // what happened without expanding metadata. For nl_sql, response_summary
+  // already carries the truncated rationale from the logger.
   let patchHint: string | null = null;
   if (event.kind === "nl_style") {
     const patch = (metadata.patch ?? null) as
@@ -429,9 +443,40 @@ function AiEventCard({ event }: { event: AiEvent }) {
     if (paintKeys.length > 0) parts.push(`paint: ${paintKeys.join(", ")}`);
     if (layoutKeys.length > 0) parts.push(`layout: ${layoutKeys.join(", ")}`);
     patchHint = parts.length > 0 ? parts.join(" · ") : "declined (empty patch)";
+  } else if (event.kind === "crs_detect") {
+    const source =
+      typeof metadata.source === "string" ? (metadata.source as string) : null;
+    const epsg =
+      typeof metadata.epsg === "number" ? (metadata.epsg as number) : null;
+    const fileName =
+      typeof metadata.fileName === "string"
+        ? (metadata.fileName as string)
+        : null;
+    const parts: string[] = [];
+    if (epsg) parts.push(`EPSG:${epsg}`);
+    if (source) parts.push(`source: ${source}`);
+    if (fileName) parts.push(fileName);
+    patchHint = parts.length > 0 ? parts.join(" · ") : null;
+  } else if (event.kind === "column_type_infer") {
+    const hints = Array.isArray(metadata.hints)
+      ? (metadata.hints as Array<{ field?: string; inferred?: string }>)
+      : [];
+    const summaryParts = hints
+      .filter((h) => typeof h.field === "string" && typeof h.inferred === "string")
+      .map((h) => `${h.field}: ${h.inferred}`)
+      .slice(0, 6);
+    const more = hints.length > summaryParts.length ? ` +${hints.length - summaryParts.length} more` : "";
+    patchHint = summaryParts.length > 0 ? `${summaryParts.join(", ")}${more}` : null;
   }
 
-  const promptFull = event.prompt ?? "(no prompt)";
+  // Ingest-kind events don't carry a user prompt — the "prompt" slot holds the
+  // .prj WKT for crs_detect, or is empty for column_type_infer. Fall back to
+  // the response summary so the card is never a silent blank.
+  const promptFull =
+    event.prompt ??
+    (event.kind === "crs_detect" || event.kind === "column_type_infer"
+      ? summary || "(no prompt)"
+      : "(no prompt)");
   const promptTruncated =
     promptFull.length > 200 ? `${promptFull.slice(0, 200)}…` : promptFull;
 
