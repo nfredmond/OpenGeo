@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      next:
+        patterns: ["next", "eslint-config-next", "@next/*"]
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      supabase:
+        patterns: ["@supabase/*"]
+      ai:
+        patterns: ["ai", "@ai-sdk/*"]
+      trpc:
+        patterns: ["@trpc/*"]
+      tanstack:
+        patterns: ["@tanstack/*"]
+      tailwind:
+        patterns: ["tailwindcss", "@tailwindcss/*", "tailwind-merge"]
+      dev-types:
+        patterns: ["@types/*", "typescript", "eslint", "vitest", "@playwright/*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
