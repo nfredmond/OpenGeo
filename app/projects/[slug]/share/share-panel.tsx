@@ -160,6 +160,8 @@ export function SharePanel({ projectSlug }: { projectSlug: string }) {
           )}
         </section>
       )}
+
+      {canAdmin && <ShareLinkManager projectSlug={projectSlug} />}
     </div>
   );
 }
@@ -343,5 +345,189 @@ function CancelInviteButton({
       </button>
       {error && <p className="text-[10px] text-red-500">{error}</p>}
     </div>
+  );
+}
+
+type ShareLink = {
+  id: string;
+  prefix: string;
+  scopes: string[];
+  expiresAt: string | null;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+};
+
+function ShareLinkManager({ projectSlug }: { projectSlug: string }) {
+  const [links, setLinks] = useState<ShareLink[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [minting, setMinting] = useState(false);
+  const [expiresInDays, setExpiresInDays] = useState<string>("30");
+  // Newly-minted token shown exactly once, then cleared when the user copies
+  // it or moves on.
+  const [newToken, setNewToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/share-links`, { cache: "no-store" });
+      const body = (await res.json()) as { ok: boolean; tokens?: ShareLink[]; error?: string };
+      if (!res.ok || !body.ok) throw new Error(body.error ?? `Failed (${res.status})`);
+      setLinks(body.tokens ?? []);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectSlug]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function mint() {
+    setMinting(true);
+    setError(null);
+    setCopied(false);
+    try {
+      const days = expiresInDays.trim()
+        ? Math.max(1, Math.min(3650, parseInt(expiresInDays, 10)))
+        : undefined;
+      const res = await fetch(`/api/projects/${projectSlug}/share-links`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(days ? { expiresInDays: days } : {}),
+      });
+      const body = (await res.json()) as { ok: boolean; token?: string; error?: string };
+      if (!res.ok || !body.ok || !body.token) {
+        throw new Error(body.error ?? `Failed (${res.status})`);
+      }
+      setNewToken(body.token);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setMinting(false);
+    }
+  }
+
+  async function revoke(id: string, prefix: string) {
+    if (!confirm(`Revoke share link "${prefix}…"? Anyone holding it will lose access immediately.`)) return;
+    try {
+      const res = await fetch(
+        `/api/projects/${projectSlug}/share-links/${id}`,
+        { method: "DELETE" },
+      );
+      const body = (await res.json()) as { ok: boolean; error?: string };
+      if (!res.ok || !body.ok) throw new Error(body.error ?? `Failed (${res.status})`);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function copyToken() {
+    if (!newToken) return;
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/p/${newToken}`);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  const activeLinks = links.filter((l) => !l.revokedAt);
+
+  return (
+    <section className="rounded-md border border-[color:var(--border)] bg-[color:var(--card)] p-4">
+      <header className="mb-3 flex items-center justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-[color:var(--muted)]">
+          Public share links ({activeLinks.length})
+        </h2>
+      </header>
+
+      <div className="mb-4 rounded border border-[color:var(--border)] bg-[color:var(--background)] p-3">
+        <p className="mb-2 text-xs text-[color:var(--muted)]">
+          Mint a read-only link. Anyone with the URL can view the map. No sign-up needed.
+        </p>
+        <div className="flex items-end gap-2">
+          <label className="flex flex-col text-[11px]">
+            <span className="mb-1 text-[color:var(--muted)]">Expires in (days)</span>
+            <input
+              type="number"
+              min={1}
+              max={3650}
+              value={expiresInDays}
+              onChange={(e) => setExpiresInDays(e.target.value)}
+              className="w-24 rounded border border-[color:var(--border)] bg-[color:var(--card)] px-2 py-1 text-sm"
+            />
+          </label>
+          <button
+            onClick={() => void mint()}
+            disabled={minting}
+            className="rounded bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+          >
+            {minting ? "Minting…" : "Mint link"}
+          </button>
+        </div>
+        {newToken && (
+          <div className="mt-3 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+            <p className="mb-2 font-semibold text-amber-800">
+              Copy this link now — it won&apos;t be shown again.
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 truncate rounded bg-[color:var(--card)] px-2 py-1 font-mono text-[11px]">
+                {typeof window !== "undefined" ? window.location.origin : ""}/p/{newToken}
+              </code>
+              <button
+                onClick={() => void copyToken()}
+                className="rounded border border-[color:var(--border)] px-2 py-1 text-[11px] hover:border-[color:var(--accent)]"
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+              <button
+                onClick={() => setNewToken(null)}
+                className="rounded border border-[color:var(--border)] px-2 py-1 text-[11px] text-[color:var(--muted)] hover:border-[color:var(--foreground)]"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-[color:var(--muted)]">Loading…</p>
+      ) : activeLinks.length === 0 ? (
+        <p className="text-sm text-[color:var(--muted)]">No active share links.</p>
+      ) : (
+        <ul className="divide-y divide-[color:var(--border)]">
+          {activeLinks.map((l) => (
+            <li key={l.id} className="flex items-center justify-between py-2 text-sm">
+              <div className="min-w-0">
+                <p className="truncate font-mono text-xs">{l.prefix}…</p>
+                <p className="text-[11px] text-[color:var(--muted)]">
+                  {l.scopes.join(", ")} ·{" "}
+                  {l.expiresAt
+                    ? `expires ${new Date(l.expiresAt).toLocaleDateString()}`
+                    : "no expiry"}
+                  {l.lastUsedAt ? ` · last used ${new Date(l.lastUsedAt).toLocaleDateString()}` : ""}
+                </p>
+              </div>
+              <button
+                onClick={() => void revoke(l.id, l.prefix)}
+                className="rounded border border-[color:var(--border)] px-2 py-1 text-[11px] text-[color:var(--muted)] hover:border-red-500 hover:text-red-500"
+              >
+                Revoke
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+    </section>
   );
 }
