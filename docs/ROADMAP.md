@@ -33,15 +33,15 @@ Derived from the phased plan in `Dev planning documents/research.md`. Dates are 
 
 **Target:** week 36 (2026-12-24).
 
-- [ ] Sharing & permissions model: org → members → projects → layers with RLS.
-- [ ] API keys, public share links, preview URLs per project.
+- [x] Sharing & permissions model: org → members → projects → layers with RLS. *(`20260417120100_project_membership.sql` — `project_members`, `project_invitations`, `has_project_access()` helper; widens every RLS SELECT from org-scope to project-scope-or-org-scope.)*
+- [x] Public share links — per-project, hashed-at-rest tokens with expiry + revocation. *(`20260417120200_share_tokens.sql`, `/api/share/[token]/*`, `/p/[token]`.)* API keys + preview URLs per project still deferred — scope narrowed to what a client share actually needs.
+- [x] Change detection between drone flights — **feature-level (vector-on-vector)**. *(`lib/change-detection/feature-diff.ts`, `POST /api/flights/diff`, Compare-layers panel with AI narration persisted on `layers.metadata`.)* Pixel-level raster diff deferred to Phase 2.5 (needs GDAL/Python services/\* deployment).
 - [ ] `geo` CLI: init/dev/deploy/layers/query/style, Docker-backed local dev, git-friendly map definitions.
 - [ ] Dashboard builder: map + chart widgets with cross-filtering (Vega-Lite).
-- [ ] Change detection between drone flights (orthomosaic diff + highlighted features).
 - [ ] Semantic search over imagery tiles and dataset descriptions via pgvector + Clay embeddings.
 - [ ] PMTiles hosting for static dataset publishing; fork of Maputnik for style editing.
 
-**Exit criteria:** A consultant can onboard a client, share a project with three collaborators, publish a public PMTiles dashboard, and diff two flights of the same site.
+**Exit criteria:** A consultant can onboard a client, share a project with three collaborators, publish a public PMTiles dashboard, and diff two flights of the same site. *(Onboard + share + vector diff shipped 2026-04-18; PMTiles dashboard remains.)*
 
 ## Phase 3 — Expansion toward platform (months 10–18)
 
