@@ -137,12 +137,20 @@ export default async function ProjectsPage() {
                   </div>
                   <div className="mt-3 flex items-center justify-between text-[11px] text-[color:var(--muted)]">
                     <code className="font-mono">{p.slug}</code>
-                    <Link
-                      href={`/map/${p.slug}`}
-                      className="text-[color:var(--accent)] hover:underline"
-                    >
-                      Open map →
-                    </Link>
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href={`/projects/${p.slug}/share`}
+                        className="hover:text-[color:var(--foreground)]"
+                      >
+                        Share
+                      </Link>
+                      <Link
+                        href={`/map/${p.slug}`}
+                        className="text-[color:var(--accent)] hover:underline"
+                      >
+                        Open map →
+                      </Link>
+                    </div>
                   </div>
                 </li>
               );

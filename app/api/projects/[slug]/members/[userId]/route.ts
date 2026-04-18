@@ -1,0 +1,120 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseService } from "@/lib/supabase/service";
+import { withRoute } from "@/lib/observability/with-route";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const ParamsSchema = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
+  userId: z.string().uuid(),
+});
+
+export const DELETE = withRoute<{ slug: string; userId: string }>(
+  "projects.members.remove",
+  async (_req, ctx) => {
+    const rawParams = await ctx.params;
+    const parsed = ParamsSchema.safeParse(rawParams);
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: "Invalid parameters." }, { status: 400 });
+    }
+
+    const supabase = await supabaseServer();
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user) {
+      return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
+    }
+
+    // Resolve project by slug (RLS-scoped; 404 if caller has no access).
+    const { data: project, error: pErr } = await supabase
+      .schema("opengeo")
+      .from("projects")
+      .select("id, slug, org_id")
+      .eq("slug", parsed.data.slug)
+      .maybeSingle();
+    if (pErr) return NextResponse.json({ ok: false, error: pErr.message }, { status: 500 });
+    if (!project) return NextResponse.json({ ok: false, error: "Project not found." }, { status: 404 });
+
+    const { data: canAdmin, error: aErr } = await supabase
+      .schema("opengeo")
+      .rpc("has_project_access", { target_project: project.id, min_role: "admin" });
+    if (aErr) return NextResponse.json({ ok: false, error: aErr.message }, { status: 500 });
+    if (canAdmin !== true) {
+      return NextResponse.json({ ok: false, error: "Forbidden." }, { status: 403 });
+    }
+
+    // Service-role from here on so the last-owner guard can count across rows
+    // that the scoped client may not be able to see (org members are visible
+    // to org members only).
+    const admin = supabaseService();
+
+    const { data: targetRow, error: tErr } = await admin
+      .schema("opengeo")
+      .from("project_members")
+      .select("role")
+      .eq("project_id", project.id)
+      .eq("user_id", parsed.data.userId)
+      .maybeSingle();
+    if (tErr) return NextResponse.json({ ok: false, error: tErr.message }, { status: 500 });
+    if (!targetRow) {
+      return NextResponse.json(
+        { ok: false, error: "User is not a project member (or only has org-level access)." },
+        { status: 404 },
+      );
+    }
+
+    // Last-owner guard: if removing this row would leave the project with no
+    // admin+/owner at all (neither via project_members nor via org.members),
+    // refuse. Cheap upper bound: count survivors in each table.
+    if (targetRow.role === "owner" || targetRow.role === "admin") {
+      const { count: pmSurvivors, error: pmCountErr } = await admin
+        .schema("opengeo")
+        .from("project_members")
+        .select("user_id", { count: "exact", head: true })
+        .eq("project_id", project.id)
+        .in("role", ["owner", "admin"])
+        .neq("user_id", parsed.data.userId);
+      if (pmCountErr) {
+        return NextResponse.json({ ok: false, error: pmCountErr.message }, { status: 500 });
+      }
+
+      const { count: orgSurvivors, error: orgCountErr } = await admin
+        .schema("opengeo")
+        .from("members")
+        .select("user_id", { count: "exact", head: true })
+        .eq("org_id", project.org_id)
+        .in("role", ["owner", "admin"]);
+      if (orgCountErr) {
+        return NextResponse.json({ ok: false, error: orgCountErr.message }, { status: 500 });
+      }
+
+      if ((pmSurvivors ?? 0) + (orgSurvivors ?? 0) === 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Cannot remove the last admin/owner. Invite or promote another admin first.",
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    const { error: delErr } = await admin
+      .schema("opengeo")
+      .from("project_members")
+      .delete()
+      .eq("project_id", project.id)
+      .eq("user_id", parsed.data.userId);
+    if (delErr) {
+      return NextResponse.json({ ok: false, error: delErr.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, removed: parsed.data.userId });
+  },
+);
