@@ -318,21 +318,22 @@ All six should exit 0.
 
 ---
 
-## What's explicitly deferred to Phase 2
+## What's explicitly deferred past Phase 2
 
-These are intentional scope cuts — don't let them creep into Phase 1 without a
-conversation:
+These are intentional scope cuts — don't let them creep into Phase 1 or 2
+without a conversation:
 
 - **GeoPackage ingest.** `@ngageoint/geopackage` needs `better-sqlite3`
   (native), which is fragile on Vercel serverless. Shapefile is the dominant
   field format and covers ~80% of what a planner drops on the upload panel.
 - **Address geocoding on ingest.** Needs a geocoder decision (Mapbox? Pelias?
   Nominatim?) — separate conversation.
-- **Sharing / permissions UI.** Supabase RLS covers the policy backbone; the
-  dashboard for setting share rules is Phase 2.
-- **Change detection across flights.** Requires a temporal vector-diff step
-  the extractor doesn't do yet.
-- **Dashboard builder.** Phase 2.
+- **Dashboard builder.** Depends on sharing; Phase 2 wedge #2.
+- **Pixel-level raster diff between orthomosaics.** Needs GDAL/Python and a
+  second services/\* deployment; Phase 2.5. Feature-level diff (Phase 2 Step 3)
+  covers vector-on-vector; raster-on-raster is the remaining half.
+- **PMTiles hosting + Maputnik fork.** Later Phase 2 wedge.
+- **Semantic layer search via Clay embeddings.** Phase 3 candidate.
 
 ---
 
@@ -348,3 +349,186 @@ conversation:
 
 Everything else in this runbook should work on a fresh laptop with only
 Docker + Node + pnpm + a Claude key.
+
+---
+
+# Phase 2 Runbook — sharing, public links, change detection
+
+Phase 2 turns OpenGeo from a single-user demo into something a consultant can
+actually invite a collaborator into and send a client a read-only map. The
+steps below append to Phase 1 — they assume you've already run through at
+least the upload / extract / review loop.
+
+Each step follows the same **Do / Expect / If it fails** pattern as Phase 1.
+
+## P2.1 Invite a collaborator to a project *(zero external setup)*
+
+Phase 2 Step 1 extends the org-level membership model with a
+`project_members` table + email-invitation flow so a project owner can bring
+a collaborator in without giving them the whole org.
+
+**Do:**
+
+- Sign in as a project admin at `http://localhost:3000/login`.
+- From `/projects`, click **Share** on a project.
+- On `/projects/<slug>/share`, fill **Invite by email** with an address that
+  is *not* already in `auth.users` (e.g. `collab+<unix-ts>@example.com`).
+  Role: `editor`. Submit.
+- Open a second browser (or incognito) and hit the Supabase local-auth
+  mailbox at `http://localhost:54324` (Inbucket). Click the magic-link mail
+  and follow it through `/auth/callback`.
+
+**Expect:**
+
+- The invite form shows a success toast and the invitation appears under
+  **Pending invitations** with the role you chose.
+- After the collaborator lands via the magic link, they end up on
+  `/projects/<slug>` with the project visible (no auto-org created for
+  them).
+- On `/projects/<slug>/share` the invitation row moves from **Pending** to
+  **Members**.
+
+**If it fails:**
+
+- Nothing shows up on `/projects/<slug>/share` → the caller wasn't an admin.
+  `has_project_access(project_id, 'admin')` is enforced on GET too.
+- Collaborator sees no projects after signing in → the auth trigger didn't
+  match their email to a pending invitation. Most common cause: the email
+  differs in case. `project_invitations.email` is `citext` but the trigger
+  compares against `lower(new.email)`; check `select email from
+  auth.users where id = ...` vs. the pending invitation row.
+- Magic-link mail never arrives → Inbucket wasn't running. Restart the
+  supabase stack (`supabase start`) and re-invite.
+
+## P2.2 Mint a public share link, verify read-only *(zero external setup)*
+
+Phase 2 Step 2 adds `project_share_tokens` + `resolve_share_token(text)` and
+an anon-readable `/api/share/[token]/*` surface so a planner can hand a raw
+URL to a client. Tokens are hashed at rest (mirrors the `api_keys` pattern).
+
+**Do:**
+
+- On `/projects/<slug>/share`, scroll to **Public share links**.
+- Enter an expiry in days (e.g. `7`), click **Mint**.
+- Copy the token from the one-time display (it will never appear again),
+  then click **Dismiss**.
+- Open an incognito window and go to `/p/<token>`.
+
+**Expect:**
+
+- The public page loads a trimmed read-only map: project name + org in a
+  "Read-only share" banner, a layers-only sidebar with visibility toggles
+  (no upload, no extract, no AI query), and the basemap picker in the
+  header.
+- Any `.safetensors`-style copy-paste of the token into another route
+  (e.g. `curl http://localhost:3000/api/layers` in an anon session) returns
+  **401** — the token only unlocks `/api/share/[token]/*`.
+- Listing tokens on `/projects/<slug>/share` shows the prefix + expiry but
+  **not** the secret. Hitting `GET /api/projects/<slug>/share-links`
+  directly returns the same.
+
+**If it fails:**
+
+- `/p/<token>` renders "This share link isn't available." → the token
+  didn't resolve. Check `select revoked_at, expires_at from
+  opengeo.project_share_tokens where token_prefix = '...'`. All invalid
+  paths (expired/revoked/unknown/forged) 404 on purpose; check the DB row
+  to tell them apart.
+- The map is blank but the banner renders → the layers route returned
+  empty. Most common cause: the project has no vector layers. Run the
+  Phase 1 extract loop first so there's something to render.
+- Dev tools show `GET /api/share/<token>/layers` returning 500 → the share
+  scope doesn't include `read:layers`. Defaults include both
+  `read:layers` and `read:orthomosaics`; if you minted with a narrower
+  scope, that's the cause.
+
+## P2.3 Diff two layers, view the AI narrative *(requires Anthropic key)*
+
+Phase 2 Step 3 is the drone-wedge proof point: two flights of the same site
+feed into `POST /api/flights/diff`, which returns a change-typed layer
+(added / removed / modified) and asks Claude for a short narration stored on
+the new layer's metadata.
+
+**Do:**
+
+- Open `/map/<slug>` for a project that already has at least two vector
+  layers in it (the quickest seed: run the Phase 1 extract loop twice with
+  a tweak, or upload two GeoJSON files with small differences).
+- In the sidebar, scroll to **Compare layers**. Pick a **From** and a
+  **To** layer, then click **Compare**.
+
+**Expect:**
+
+- A new layer appears on the map painted red / green / amber by
+  `change_type`.
+- The panel shows counts (e.g. `+3 added`, `−1 removed`, `Δ2 modified`).
+- Within a few seconds, an **AI narration** block renders a 3–4 sentence
+  summary.
+- The new diff layer is persisted — reloading the page rehydrates it.
+- `/review` on the **AI audit log** tab shows two rows per run:
+  one with `kind = change_detect`, one with `kind = change_narrate`.
+  The filter chips for both are visible.
+
+**If it fails:**
+
+- The compare button is disabled → fewer than two eligible vector layers
+  are loaded. Large (>2000 feature) tile-backed layers don't participate
+  in v1; pick two GeoJSON-backed ones.
+- 400 from the route → both layers must be in the same project, both must
+  have at least one feature, and `fromLayerId` must differ from
+  `toLayerId`.
+- Counts are `{added:0, removed:0, modified:0}` on layers you know
+  differ → your features are outside the default thresholds (5m distance,
+  0.5 IoU, 2m modified shift). Pass a custom `thresholds` body if you
+  need tighter matching.
+- Narration block never appears but counts do → the Anthropic call failed.
+  The diff layer still persists (this is intentional — narration is
+  best-effort). Check the server log for `change-detection narration
+  failed:`.
+
+## P2.4 Revoke a share link, verify the incognito window 404s *(zero external setup)*
+
+Covers the opposite direction: if a planner mailed a token to the wrong
+person or the client relationship ends, the token has to stop working
+immediately.
+
+**Do:**
+
+- In the normal (logged-in) window, return to `/projects/<slug>/share`.
+- In **Public share links**, click **Revoke** on the token you minted in
+  P2.2.
+- In the still-open incognito window from P2.2, reload `/p/<token>`.
+
+**Expect:**
+
+- The token disappears from the **Active** list and shows under **Revoked**
+  with a timestamp.
+- The incognito reload lands on "This share link isn't available." within
+  a single page load — no caching gotchas, because all share routes use
+  `cache: "no-store"`.
+- Any direct `curl http://localhost:3000/api/share/<token>/project`
+  returns **404**, same as an unknown token (no oracle leak).
+
+**If it fails:**
+
+- The incognito page still shows data → check `select revoked_at from
+  opengeo.project_share_tokens where id = '<uuid>'`. If that's populated
+  but the page still loads, the client is caching. Hard-reload.
+- `/projects/<slug>/share` throws on revoke → the DELETE route is gated
+  on `has_project_access(project_id, 'admin')`. Sign in as an admin.
+
+---
+
+## Phase 2 smoke-test one-liner
+
+Once P2.1–P2.4 pass by hand, the same happy path can be exercised by the
+unit + integration tests without starting a browser:
+
+```bash
+pnpm test  # project-membership, share tokens, share routes, feature diff, flights/diff route
+```
+
+The integration-style tests (`has-project-access`, `share-token`) are gated
+on `LOCAL_DB_URL` so CI stays green without a provisioned Postgres; set
+`LOCAL_DB_URL=postgres://postgres:postgres@127.0.0.1:54322/postgres` to run
+them against your local supabase stack.
