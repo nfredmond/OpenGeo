@@ -32,7 +32,10 @@ services:
       retries: 20
 
   martin:
-    image: ghcr.io/maplibre/martin:v0.20.0
+    # Upstream moved to monorepo-style GitHub Release tags (e.g. `martin-v1.5.0`)
+    # that aren't mirrored 1:1 into GHCR. `v0.20.0` no longer resolves.
+    # Pin `latest` until upstream stabilizes versioned GHCR tags.
+    image: ghcr.io/maplibre/martin:latest
     container_name: opengeo-martin
     depends_on:
       postgres:

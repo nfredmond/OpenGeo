@@ -103,6 +103,19 @@ describeFn("has_project_access + invitation trigger", () => {
     );
     projectB = pB[0].id;
 
+    // The on_auth_user_created trigger auto-spins an org + "Default Project"
+    // for every inserted auth.users row unless a matching invitation exists.
+    // userInvited is meant to represent a true project-only invitee (no org
+    // membership), so strip that auto-created org here. Cascading FKs drop the
+    // auto-created member row + Default Project with it. Without this the
+    // default_project_for test below gets the older auto-project back instead
+    // of projectA.
+    await client.query(
+      `delete from opengeo.orgs
+        where id in (select org_id from opengeo.members where user_id = $1)`,
+      [userInvited],
+    );
+
     // Direct project_members grant: strangers get access only to projectA.
     await client.query(
       `insert into opengeo.project_members (project_id, user_id, role)
