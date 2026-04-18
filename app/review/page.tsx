@@ -27,7 +27,9 @@ type AiEventKind =
   | "nl_sql"
   | "nl_style"
   | "crs_detect"
-  | "column_type_infer";
+  | "column_type_infer"
+  | "change_detect"
+  | "change_narrate";
 
 type AiEvent = {
   id: string;
@@ -53,6 +55,8 @@ const KIND_LABELS: Record<AiEventKind, string> = {
   nl_style: "NL → Style",
   crs_detect: "CRS detect",
   column_type_infer: "Column types",
+  change_detect: "Change detect",
+  change_narrate: "Change narrate",
 };
 
 const AI_FILTERS: Array<{ value: AiEventKind | "all"; label: string }> = [
@@ -61,6 +65,8 @@ const AI_FILTERS: Array<{ value: AiEventKind | "all"; label: string }> = [
   { value: "nl_style", label: "NL → Style" },
   { value: "crs_detect", label: "CRS detect" },
   { value: "column_type_infer", label: "Column types" },
+  { value: "change_detect", label: "Change detect" },
+  { value: "change_narrate", label: "Change narrate" },
 ];
 
 export default function ReviewPage() {

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MapCanvas, type MapCanvasHandle, type LayerStylePatch } from "./map-canvas";
 import { LayerPanel, type ClientLayer } from "./layer-panel";
 import { AiQueryPanel } from "./ai-query-panel";
+import { ComparePanel } from "./compare-panel";
 import { UploadPanel } from "./upload-panel";
 import { OrthoPanel } from "./ortho-panel";
 import { BasemapPicker } from "./basemap-picker";
@@ -195,6 +196,7 @@ export function MapWorkspace({
         />
 
         <AiQueryPanel onLayerAdded={addLayer} />
+        <ComparePanel layers={layers} onLayerAdded={addLayer} />
       </aside>
 
       <main className="relative flex-1">

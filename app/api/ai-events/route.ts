@@ -10,6 +10,8 @@ const ALLOWED_KINDS = [
   "nl_style",
   "crs_detect",
   "column_type_infer",
+  "change_detect",
+  "change_narrate",
 ] as const;
 type AllowedKind = (typeof ALLOWED_KINDS)[number];
 const PAGE_SIZE = 50;
