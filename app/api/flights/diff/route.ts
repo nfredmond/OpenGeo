@@ -3,7 +3,7 @@ import { z } from "zod";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseService } from "@/lib/supabase/service";
 import { withRoute } from "@/lib/observability/with-route";
-import { diffFeatures, DEFAULT_THRESHOLDS } from "@/lib/change-detection/feature-diff";
+import { diffFeatures } from "@/lib/change-detection/feature-diff";
 import { narrateDiff } from "@/lib/change-detection/narrate";
 import { logAiEvent } from "@/lib/ai/logger";
 
