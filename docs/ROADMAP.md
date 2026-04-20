@@ -36,7 +36,7 @@ Derived from the phased plan in `Dev planning documents/research.md`. Dates are 
 - [x] Sharing & permissions model: org → members → projects → layers with RLS. *(`20260417120100_project_membership.sql` — `project_members`, `project_invitations`, `has_project_access()` helper; widens every RLS SELECT from org-scope to project-scope-or-org-scope.)*
 - [x] Public share links — per-project, hashed-at-rest tokens with expiry + revocation. *(`20260417120200_share_tokens.sql`, `/api/share/[token]/*`, `/p/[token]`.)* API keys + preview URLs per project still deferred — scope narrowed to what a client share actually needs.
 - [x] Change detection between drone flights — **feature-level (vector-on-vector)**. *(`lib/change-detection/feature-diff.ts`, `POST /api/flights/diff`, Compare-layers panel with AI narration persisted on `layers.metadata`.)* Pixel-level raster diff deferred to Phase 2.5 (needs GDAL/Python services/\* deployment).
-- [ ] `geo` CLI: init/dev/deploy/layers/query/style, Docker-backed local dev, git-friendly map definitions.
+- [ ] `geo` CLI: init/dev/deploy/layers/query/style, Docker-backed local dev, git-friendly map definitions. *(`geo doctor` now wraps deploy readiness checks; map-definition workflows remain.)*
 - [ ] Dashboard builder: map + chart widgets with cross-filtering (Vega-Lite).
 - [ ] Semantic search over imagery tiles and dataset descriptions via pgvector + Clay embeddings.
 - [x] PMTiles hosting for static dataset publishing. *(`POST /api/pmtiles` registers hosted archives; `POST /api/pmtiles/publish` exports PostGIS layers through Tippecanoe, uploads to R2, and rehydrates via MapLibre `pmtiles://` sources. Vercel-safe generation can run through `services/pmtiles-generator`; Maputnik-style editing remains separate.)*

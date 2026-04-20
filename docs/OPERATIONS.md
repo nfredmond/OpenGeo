@@ -30,6 +30,8 @@ pnpm db:migrate:remote
 
 # 6. Check environment readiness.
 pnpm env:doctor -- --scope=core
+# or through the OpenGeo CLI:
+pnpm geo doctor --scope=core
 
 # 7. Run the app.
 pnpm dev
@@ -79,6 +81,8 @@ the target surface:
 ```bash
 pnpm env:doctor -- --target=preview --scope=core,pmtiles
 pnpm env:doctor -- --target=production --scope=all
+# Equivalent CLI form:
+pnpm geo doctor --target=preview --scope=core,pmtiles
 ```
 
 The doctor prints variable names only. It does not print secret values. Use
