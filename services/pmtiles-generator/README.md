@@ -67,3 +67,26 @@ ghcr.io/nfredmond/opengeo-pmtiles-generator:<tag>
 The workflow emits `sha-<commit>` tags for reproducible deployments and
 `latest` for the default branch. Point the container host at `/generate` and
 set `PMTILES_GENERATOR_URL` in Vercel to that public HTTPS endpoint.
+
+## Fly.io Deployment
+
+The repo includes `fly.toml` for the release-hardening app:
+
+```bash
+fly apps create opengeo-pmtiles-generator-natford
+fly secrets set PMTILES_GENERATOR_TOKEN="<shared bearer token>" \
+  --app opengeo-pmtiles-generator-natford
+fly deploy --config services/pmtiles-generator/fly.toml
+```
+
+The config uses the immutable image tag
+`ghcr.io/nfredmond/opengeo-pmtiles-generator:sha-b61ee31`, exposes port `8110`,
+and health-checks `/health`. Keep `primary_region` close to the hosted
+Supabase region; it defaults to `sjc` until that region is confirmed.
+
+After deployment, set this in Vercel preview and production:
+
+```text
+PMTILES_GENERATOR_URL=https://opengeo-pmtiles-generator-natford.fly.dev/generate
+PMTILES_GENERATOR_TOKEN=<same shared bearer token>
+```
