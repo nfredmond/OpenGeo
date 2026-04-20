@@ -185,6 +185,16 @@ Production should set `PMTILES_GENERATOR_TOKEN` on both the generator service
 and Vercel. The generator returns raw `application/vnd.pmtiles` bytes; the
 Next.js route still owns R2 upload and project/layer registration.
 
+Authenticated users can check server-side publishing readiness without starting
+an export:
+
+```bash
+curl -i https://<app-host>/api/pmtiles/publish
+```
+
+The response reports missing variable names such as `R2_ACCOUNT_ID` or
+`PMTILES_GENERATOR_URL`; it never includes secret values.
+
 The container image is built by `.github/workflows/pmtiles-generator-image.yml`.
 Pull requests build the image without publishing it. Pushes to `main` and
 manual workflow runs publish GHCR tags under:

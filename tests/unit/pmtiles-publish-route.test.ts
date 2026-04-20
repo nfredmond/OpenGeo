@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => {
     }
   }
   return {
+    pmtilesPublishReadiness: vi.fn(),
+    pmtilesReadinessError: vi.fn(),
     publishGeoJsonAsPmtiles: vi.fn(),
     R2ConfigError: MockR2ConfigError,
     R2UploadError: MockR2UploadError,
@@ -58,6 +60,11 @@ vi.mock("@/lib/r2", () => ({
   R2UploadError: mocks.R2UploadError,
 }));
 
+vi.mock("@/lib/pmtiles-readiness", () => ({
+  pmtilesPublishReadiness: mocks.pmtilesPublishReadiness,
+  pmtilesReadinessError: mocks.pmtilesReadinessError,
+}));
+
 type LayerRow = {
   id: string;
   name: string;
@@ -78,6 +85,7 @@ type State = {
   canEdit: boolean;
   featureCollection: GeoJSON.FeatureCollection;
   inserts: Record<string, Array<Record<string, unknown>>>;
+  rpcCalls: string[];
 };
 
 const featureCollection: GeoJSON.FeatureCollection = {
@@ -97,6 +105,22 @@ const state: State = {
   canEdit: true,
   featureCollection,
   inserts: { datasets: [], layers: [] },
+  rpcCalls: [],
+};
+
+const readyState = {
+  ok: true,
+  missing: [],
+  warnings: [],
+  r2: { ok: true, missing: [], bucketConfigured: true, publicBaseUrlConfigured: true },
+  generation: {
+    ok: true,
+    mode: "remote",
+    missing: [],
+    remoteUrlConfigured: true,
+    tokenConfigured: true,
+    localBinary: null,
+  },
 };
 
 function resetState() {
@@ -117,6 +141,11 @@ function resetState() {
   state.canEdit = true;
   state.featureCollection = featureCollection;
   state.inserts = { datasets: [], layers: [] };
+  state.rpcCalls = [];
+  mocks.pmtilesPublishReadiness.mockReset();
+  mocks.pmtilesPublishReadiness.mockReturnValue(readyState);
+  mocks.pmtilesReadinessError.mockReset();
+  mocks.pmtilesReadinessError.mockReturnValue("PMTiles publishing is not configured: R2_ACCOUNT_ID.");
   mocks.publishGeoJsonAsPmtiles.mockReset();
   mocks.publishGeoJsonAsPmtiles.mockResolvedValue({
     url: "https://assets.example.com/pmtiles/source/parcels.pmtiles",
@@ -134,6 +163,7 @@ vi.mock("@/lib/supabase/server", () => ({
       from: (table: string) => buildFromMock(schemaName, table),
       rpc: async (fn: string, args: Record<string, unknown>) => {
         if (schemaName !== "opengeo") throw new Error(`unexpected schema ${schemaName}`);
+        state.rpcCalls.push(fn);
         if (fn === "has_project_access") {
           expect(args).toMatchObject({
             target_project: "22222222-2222-4222-8222-222222222222",
@@ -196,7 +226,7 @@ function buildFromMock(schemaName: string, table: string) {
   return chain;
 }
 
-const { POST } = await import("@/app/api/pmtiles/publish/route");
+const { GET, POST } = await import("@/app/api/pmtiles/publish/route");
 
 function req(body: unknown) {
   return new Request("http://localhost/api/pmtiles/publish", {
@@ -206,7 +236,33 @@ function req(body: unknown) {
   });
 }
 
+function getReq() {
+  return new Request("http://localhost/api/pmtiles/publish", {
+    method: "GET",
+  });
+}
+
 const ctx = { params: Promise.resolve({}) };
+
+describe("GET /api/pmtiles/publish", () => {
+  beforeEach(resetState);
+
+  it("401 when unauthenticated", async () => {
+    state.user = null;
+    const res = await GET(getReq(), ctx);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns server readiness for authenticated users", async () => {
+    const res = await GET(getReq(), ctx);
+    const body = (await res.json()) as { ok: boolean; readiness: typeof readyState };
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.readiness.ok).toBe(true);
+    expect(mocks.pmtilesPublishReadiness).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("POST /api/pmtiles/publish", () => {
   beforeEach(resetState);
@@ -223,6 +279,31 @@ describe("POST /api/pmtiles/publish", () => {
     const body = (await res.json()) as { error: string };
     expect(res.status).toBe(403);
     expect(body.error).toContain("Not authorized");
+    expect(mocks.publishGeoJsonAsPmtiles).not.toHaveBeenCalled();
+  });
+
+  it("503s before GeoJSON export when publishing infrastructure is not ready", async () => {
+    mocks.pmtilesPublishReadiness.mockReturnValueOnce({
+      ...readyState,
+      ok: false,
+      missing: ["R2_ACCOUNT_ID"],
+      r2: {
+        ...readyState.r2,
+        ok: false,
+        missing: ["R2_ACCOUNT_ID"],
+      },
+    });
+
+    const res = await POST(req({ layerId: "11111111-1111-4111-8111-111111111111" }), ctx);
+    const body = (await res.json()) as {
+      error: string;
+      readiness: { ok: boolean; missing: string[] };
+    };
+
+    expect(res.status).toBe(503);
+    expect(body.error).toContain("R2_ACCOUNT_ID");
+    expect(body.readiness.missing).toEqual(["R2_ACCOUNT_ID"]);
+    expect(state.rpcCalls).not.toContain("layer_as_geojson");
     expect(mocks.publishGeoJsonAsPmtiles).not.toHaveBeenCalled();
   });
 

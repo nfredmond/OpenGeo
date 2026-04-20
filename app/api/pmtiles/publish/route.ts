@@ -8,6 +8,10 @@ import {
   TippecanoeError,
 } from "@/lib/pmtiles-publish";
 import { R2ConfigError, R2UploadError } from "@/lib/r2";
+import {
+  pmtilesPublishReadiness,
+  pmtilesReadinessError,
+} from "@/lib/pmtiles-readiness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +60,19 @@ type LayerRow = {
       }>
     | null;
 };
+
+export const GET = withRoute("pmtiles.publish.readiness", async () => {
+  const supabase = await supabaseServer();
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) {
+    return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    readiness: pmtilesPublishReadiness(),
+  });
+});
 
 export const POST = withRoute("pmtiles.publish", async (req) => {
   const supabase = await supabaseServer();
@@ -117,6 +134,14 @@ export const POST = withRoute("pmtiles.publish", async (req) => {
   }
   if (!canEdit) {
     return NextResponse.json({ ok: false, error: "Not authorized." }, { status: 403 });
+  }
+
+  const readiness = pmtilesPublishReadiness();
+  if (!readiness.ok) {
+    return NextResponse.json(
+      { ok: false, error: pmtilesReadinessError(readiness), readiness },
+      { status: 503 },
+    );
   }
 
   const { data: featureCollection, error: geojsonErr } = await supabase
