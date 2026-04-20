@@ -5,6 +5,13 @@ import { withRoute } from "@/lib/observability/with-route";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type ShareTokenDetail = {
+  token_id: string;
+  project_id: string;
+  scopes: string[] | null;
+  expires_at: string | null;
+};
+
 // Returns ready orthomosaic COG URLs for the shared project.
 // 404 on invalid/expired/revoked token or missing read:orthomosaics scope.
 export const GET = withRoute<{ token: string }>("share.orthomosaics", async (_req, ctx) => {
@@ -14,25 +21,18 @@ export const GET = withRoute<{ token: string }>("share.orthomosaics", async (_re
   }
 
   const admin = supabaseService();
-  const { data: projectId, error: rpcErr } = await admin
+  const { data: tokenRows, error: rpcErr } = await admin
     .schema("opengeo")
-    .rpc("resolve_share_token", { p_token: token });
+    .rpc("resolve_share_token_detail", { p_token: token });
   if (rpcErr) {
     return NextResponse.json({ ok: false, error: rpcErr.message }, { status: 500 });
   }
-  if (!projectId) {
+  const tokenDetail = ((tokenRows ?? []) as ShareTokenDetail[])[0];
+  if (!tokenDetail) {
     return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
   }
 
-  const { data: tokenRow } = await admin
-    .schema("opengeo")
-    .from("project_share_tokens")
-    .select("scopes")
-    .eq("project_id", projectId as string)
-    .is("revoked_at", null)
-    .limit(1)
-    .maybeSingle();
-  const scopes = ((tokenRow as { scopes: string[] | null } | null)?.scopes ?? []) as string[];
+  const scopes = tokenDetail.scopes ?? [];
   if (!scopes.includes("read:orthomosaics")) {
     return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
   }
@@ -41,7 +41,7 @@ export const GET = withRoute<{ token: string }>("share.orthomosaics", async (_re
     .schema("opengeo")
     .from("drone_flights")
     .select("id")
-    .eq("project_id", projectId as string);
+    .eq("project_id", tokenDetail.project_id);
   if (flightsErr) {
     return NextResponse.json({ ok: false, error: flightsErr.message }, { status: 500 });
   }

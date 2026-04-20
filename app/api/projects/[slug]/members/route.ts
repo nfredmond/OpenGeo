@@ -21,19 +21,35 @@ const InviteBody = z.object({
 });
 
 type ProjectLookup = { id: string; slug: string; name: string; org_id: string };
+type AuthUserLookup = { id: string; email: string | null };
+
+class AmbiguousProjectError extends Error {}
 
 async function resolveProject(
   supabase: Awaited<ReturnType<typeof supabaseServer>>,
   slug: string,
+  projectId?: string | null,
 ): Promise<ProjectLookup | null> {
-  const { data, error } = await supabase
+  let query = supabase
     .schema("opengeo")
     .from("projects")
-    .select("id, slug, name, org_id")
-    .eq("slug", slug)
-    .maybeSingle();
+    .select("id, slug, name, org_id");
+
+  if (projectId) {
+    query = query.eq("id", projectId).eq("slug", slug);
+    const { data, error } = await query.maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as ProjectLookup | null) ?? null;
+  }
+
+  const { data, error } = await query.eq("slug", slug).limit(2).returns<ProjectLookup[]>();
   if (error) throw new Error(error.message);
-  return (data as ProjectLookup | null) ?? null;
+  if ((data ?? []).length > 1) {
+    throw new AmbiguousProjectError(
+      "Project slug is ambiguous. Open the project from the Projects list.",
+    );
+  }
+  return (data ?? [])[0] ?? null;
 }
 
 async function hasProjectRole(
@@ -61,7 +77,20 @@ export const GET = withRoute<{ slug: string }>("projects.members.list", async (_
     return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
   }
 
-  const project = await resolveProject(supabase, parsedParams.data.slug);
+  const projectId = new URL(_req.url).searchParams.get("projectId");
+  if (projectId && !z.string().uuid().safeParse(projectId).success) {
+    return NextResponse.json({ ok: false, error: "Invalid project id." }, { status: 400 });
+  }
+
+  let project: ProjectLookup | null;
+  try {
+    project = await resolveProject(supabase, parsedParams.data.slug, projectId);
+  } catch (e) {
+    if (e instanceof AmbiguousProjectError) {
+      return NextResponse.json({ ok: false, error: e.message }, { status: 409 });
+    }
+    throw e;
+  }
   if (!project) {
     return NextResponse.json({ ok: false, error: "Project not found." }, { status: 404 });
   }
@@ -71,9 +100,8 @@ export const GET = withRoute<{ slug: string }>("projects.members.list", async (_
     return NextResponse.json({ ok: false, error: "Forbidden." }, { status: 403 });
   }
 
-  // Read org-level + project-level members via the service role so we can join
-  // against auth.users for display emails without giving the caller direct
-  // SELECT on auth.users. The admin+ check above protects this privileged read.
+  // Read org-level + project-level members. Admins also get display emails via
+  // service-role-only RPCs, without exposing direct auth.users SELECT.
   const canAdmin = await hasProjectRole(supabase, project.id, "admin");
   const admin = canAdmin ? supabaseService() : null;
 
@@ -107,12 +135,10 @@ export const GET = withRoute<{ slug: string }>("projects.members.list", async (_
   const emailByUser = new Map<string, string | null>();
   if (admin && allUserIds.length > 0) {
     const { data: authUsers, error: authErr } = await admin
-      .schema("auth")
-      .from("users")
-      .select("id, email")
-      .in("id", allUserIds);
+      .schema("opengeo")
+      .rpc("auth_users_by_ids", { p_user_ids: allUserIds });
     if (!authErr) {
-      for (const row of (authUsers ?? []) as { id: string; email: string | null }[]) {
+      for (const row of (authUsers ?? []) as AuthUserLookup[]) {
         emailByUser.set(row.id, row.email);
       }
     }
@@ -194,7 +220,20 @@ export const POST = withRoute<{ slug: string }>("projects.members.invite", async
     );
   }
 
-  const project = await resolveProject(supabase, parsedParams.data.slug);
+  const projectId = new URL(req.url).searchParams.get("projectId");
+  if (projectId && !z.string().uuid().safeParse(projectId).success) {
+    return NextResponse.json({ ok: false, error: "Invalid project id." }, { status: 400 });
+  }
+
+  let project: ProjectLookup | null;
+  try {
+    project = await resolveProject(supabase, parsedParams.data.slug, projectId);
+  } catch (e) {
+    if (e instanceof AmbiguousProjectError) {
+      return NextResponse.json({ ok: false, error: e.message }, { status: 409 });
+    }
+    throw e;
+  }
   if (!project) {
     return NextResponse.json({ ok: false, error: "Project not found." }, { status: 404 });
   }
@@ -209,16 +248,13 @@ export const POST = withRoute<{ slug: string }>("projects.members.invite", async
   const role = bodyParsed.data.role;
 
   const { data: existingUsers, error: lookupErr } = await admin
-    .schema("auth")
-    .from("users")
-    .select("id, email")
-    .eq("email", email)
-    .limit(1);
+    .schema("opengeo")
+    .rpc("auth_user_by_email", { p_email: email });
   if (lookupErr) {
     return NextResponse.json({ ok: false, error: lookupErr.message }, { status: 500 });
   }
 
-  const existing = (existingUsers ?? [])[0] as { id: string; email: string | null } | undefined;
+  const existing = (existingUsers ?? [])[0] as AuthUserLookup | undefined;
 
   if (existing) {
     // User already has an auth account. Give them project access directly;
@@ -267,7 +303,7 @@ export const POST = withRoute<{ slug: string }>("projects.members.invite", async
 
   const origin = new URL(req.url).origin;
   const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(
-    `/projects/${project.slug}`,
+    `/map/${project.slug}?projectId=${project.id}`,
   )}`;
 
   const { error: emailErr } = await admin.auth.admin.inviteUserByEmail(email, {

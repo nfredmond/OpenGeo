@@ -39,7 +39,7 @@ export const GET = withRoute("projects.list", async () => {
       visibility,
       created_at,
       updated_at,
-      org:orgs!inner (id, slug, name, plan),
+      org:orgs (id, slug, name, plan),
       datasets (id, kind),
       drone_flights (id)
     `,

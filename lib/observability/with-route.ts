@@ -76,10 +76,14 @@ export function withRoute<P = unknown>(name: string, handler: Handler<P>): Handl
 
 function pathOf(req: Request): string {
   try {
-    return new URL(req.url).pathname;
+    return redactSensitivePathSegments(new URL(req.url).pathname);
   } catch {
     return "<invalid-url>";
   }
+}
+
+function redactSensitivePathSegments(path: string): string {
+  return path.replace(/^\/api\/share\/[^/]+/, "/api/share/:token");
 }
 
 function newRequestId(): string {

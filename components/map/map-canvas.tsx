@@ -42,7 +42,8 @@ export type RasterLayer = {
 export type VectorTileLayer = {
   id: string;
   name: string;
-  tilesUrlTemplate: string;
+  tilesUrlTemplate?: string;
+  sourceUrl?: string;
   sourceLayer: string;
   geometryKind: string;
   color: string;
@@ -239,12 +240,15 @@ function applyVectorTileLayer(
   hidden: Set<string>,
 ) {
   if (map.getSource(layer.id)) return;
-  map.addSource(layer.id, {
+  if (!layer.sourceUrl && !layer.tilesUrlTemplate) return;
+  const source: maplibregl.VectorSourceSpecification = {
     type: "vector",
-    tiles: [layer.tilesUrlTemplate],
     minzoom: layer.minzoom ?? 0,
     maxzoom: layer.maxzoom ?? 22,
-  });
+  };
+  if (layer.sourceUrl) source.url = layer.sourceUrl;
+  else source.tiles = [layer.tilesUrlTemplate as string];
+  map.addSource(layer.id, source);
   addVectorTileStyleLayers(map, layer);
   applyVisibility(map, layer.id, hidden);
   if (layer.bbox) {

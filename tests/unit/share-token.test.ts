@@ -37,17 +37,19 @@ describeFn("project_share_tokens + resolve_share_token", () => {
   async function insertToken(options: {
     expiresAt?: Date | null;
     revoked?: boolean;
+    scopes?: string[];
   }): Promise<MintedToken> {
     const { token, prefix, hash } = mintToken();
     const { rows } = await client.query<{ id: string }>(
       `insert into opengeo.project_share_tokens
          (project_id, token_prefix, token_hash, scopes, expires_at, revoked_at, created_by)
-       values ($1, $2, $3, array['read:layers','read:orthomosaics'], $4, $5, $6)
+       values ($1, $2, $3, $4::text[], $5, $6, $7)
        returning id`,
       [
         projectId,
         prefix,
         hash,
+        options.scopes ?? ["read:layers", "read:orthomosaics"],
         options.expiresAt ?? null,
         options.revoked ? new Date() : null,
         userId,
@@ -62,6 +64,21 @@ describeFn("project_share_tokens + resolve_share_token", () => {
       [token],
     );
     return rows[0].resolved;
+  }
+
+  async function resolveDetail(token: string): Promise<{
+    token_id: string;
+    project_id: string;
+    scopes: string[];
+    expires_at: string | null;
+  } | null> {
+    const { rows } = await client.query<{
+      token_id: string;
+      project_id: string;
+      scopes: string[];
+      expires_at: string | null;
+    }>(`select * from opengeo.resolve_share_token_detail($1)`, [token]);
+    return rows[0] ?? null;
   }
 
   beforeAll(async () => {
@@ -147,5 +164,32 @@ describeFn("project_share_tokens + resolve_share_token", () => {
     expect(new Date(rows[0].last_used_at!).getTime()).toBeGreaterThanOrEqual(
       before.getTime() - 5,
     );
+  });
+
+  it("resolve_share_token_detail returns the matched token row metadata", async () => {
+    const expiresAt = new Date(Date.now() + 60_000);
+    const minted = await insertToken({
+      expiresAt,
+      scopes: ["read:orthomosaics"],
+    });
+    const detail = await resolveDetail(minted.token);
+
+    expect(detail?.token_id).toBe(minted.id);
+    expect(detail?.project_id).toBe(projectId);
+    expect(detail?.scopes).toEqual(["read:orthomosaics"]);
+    expect(new Date(detail!.expires_at!).getTime()).toBe(expiresAt.getTime());
+  });
+
+  it("resolve_share_token_detail returns no row for invalid tokens", async () => {
+    const revoked = await insertToken({ revoked: true });
+    const expired = await insertToken({ expiresAt: new Date(Date.now() - 60_000) });
+    const active = await insertToken({});
+    const [prefix] = active.token.split(".");
+    const forged = `${prefix}.${randomBytes(32).toString("base64url")}`;
+
+    expect(await resolveDetail(revoked.token)).toBeNull();
+    expect(await resolveDetail(expired.token)).toBeNull();
+    expect(await resolveDetail(forged)).toBeNull();
+    expect(await resolveDetail(mintToken().token)).toBeNull();
   });
 });

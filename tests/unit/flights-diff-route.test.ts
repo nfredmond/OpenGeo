@@ -129,20 +129,23 @@ vi.mock("@/lib/supabase/server", () => ({
     auth: {
       getUser: async () => ({ data: { user: state.user }, error: null }),
     },
-    schema: (_s: string) => ({ from: (t: string) => buildFromMock(t) }),
-    rpc: async (fn: string, args: Record<string, unknown>) => {
-      if (fn === "layer_as_geojson") {
-        const fc = state.featureCollections[args.p_layer_id as string];
-        return {
-          data: fc ?? { type: "FeatureCollection", features: [] },
-          error: null,
-        };
-      }
-      if (fn === "ingest_geojson") {
-        return state.ingestResult;
-      }
-      throw new Error(`unexpected rpc ${fn}`);
-    },
+    schema: (schemaName: string) => ({
+      from: (t: string) => buildFromMock(t),
+      rpc: async (fn: string, args: Record<string, unknown>) => {
+        if (schemaName !== "opengeo") throw new Error(`unexpected schema ${schemaName}`);
+        if (fn === "layer_as_geojson") {
+          const fc = state.featureCollections[args.p_layer_id as string];
+          return {
+            data: fc ?? { type: "FeatureCollection", features: [] },
+            error: null,
+          };
+        }
+        if (fn === "ingest_geojson") {
+          return state.ingestResult;
+        }
+        throw new Error(`unexpected rpc ${fn}`);
+      },
+    }),
   }),
 }));
 

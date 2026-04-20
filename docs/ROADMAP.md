@@ -39,9 +39,9 @@ Derived from the phased plan in `Dev planning documents/research.md`. Dates are 
 - [ ] `geo` CLI: init/dev/deploy/layers/query/style, Docker-backed local dev, git-friendly map definitions.
 - [ ] Dashboard builder: map + chart widgets with cross-filtering (Vega-Lite).
 - [ ] Semantic search over imagery tiles and dataset descriptions via pgvector + Clay embeddings.
-- [ ] PMTiles hosting for static dataset publishing; fork of Maputnik for style editing.
+- [x] PMTiles hosting for static dataset publishing. *(`POST /api/pmtiles` registers hosted archives; `POST /api/pmtiles/publish` exports PostGIS layers through Tippecanoe, uploads to R2, and rehydrates via MapLibre `pmtiles://` sources. Vercel-safe generation can run through `services/pmtiles-generator`; Maputnik-style editing remains separate.)*
 
-**Exit criteria:** A consultant can onboard a client, share a project with three collaborators, publish a public PMTiles dashboard, and diff two flights of the same site. *(Onboard + share + vector diff shipped 2026-04-18; PMTiles dashboard remains.)*
+**Exit criteria:** A consultant can onboard a client, share a project with three collaborators, publish a public PMTiles dashboard, and diff two flights of the same site. *(Onboard + share + vector diff shipped 2026-04-18; PMTiles publishing path now in place; dashboard builder remains.)*
 
 ### Operational / security hardening (shipped in-stream)
 

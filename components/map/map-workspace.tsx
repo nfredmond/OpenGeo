@@ -7,6 +7,7 @@ import { LayerPanel, type ClientLayer } from "./layer-panel";
 import { AiQueryPanel } from "./ai-query-panel";
 import { ComparePanel } from "./compare-panel";
 import { UploadPanel } from "./upload-panel";
+import { PmtilesPanel } from "./pmtiles-panel";
 import { OrthoPanel } from "./ortho-panel";
 import { BasemapPicker } from "./basemap-picker";
 import { StyleEditor } from "./style-editor";
@@ -14,6 +15,7 @@ import { ExtractPrompt } from "./extract-prompt";
 import { defaultBasemapId, type BasemapId } from "./basemaps";
 import { pickColor } from "./colors";
 import { publicEnv } from "@/lib/public-env";
+import { parsePmtilesLayerMetadata, pmtilesSourceUrl } from "@/lib/pmtiles";
 
 type RemoteLayerSummary = {
   id: string;
@@ -21,6 +23,13 @@ type RemoteLayerSummary = {
   geometry_kind: string;
   feature_count: number;
   style?: LayerStylePatch | null;
+  metadata?: Record<string, unknown> | null;
+  dataset?: {
+    id: string;
+    kind?: string | null;
+    source_uri?: string | null;
+    metadata?: Record<string, unknown> | null;
+  } | null;
 };
 
 type RemoteOrthomosaic = {
@@ -72,9 +81,13 @@ export function MapWorkspace({
         id: layer.id,
         name: layer.name,
         tilesUrlTemplate: layer.tilesUrlTemplate,
+        sourceUrl: layer.sourceUrl,
         sourceLayer: layer.sourceLayer,
         geometryKind: layer.geometryKind,
         color: layer.color,
+        bbox: layer.bbox,
+        minzoom: layer.minzoom,
+        maxzoom: layer.maxzoom,
       });
     } else {
       mapRef.current?.addGeoJsonLayer(layer);
@@ -128,14 +141,14 @@ export function MapWorkspace({
     [addLayer],
   );
 
-  const projectSlug = project?.slug;
+  const projectId = project?.id;
   // Rehydrate vector layers + raster orthomosaics on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        await hydrateVectorLayers(cancelled, addLayer, projectSlug);
-        await hydrateOrthomosaics(cancelled, addLayer, projectSlug);
+        await hydrateVectorLayers(cancelled, addLayer, projectId);
+        await hydrateOrthomosaics(cancelled, addLayer, projectId);
       } finally {
         if (!cancelled) setHydrating(false);
       }
@@ -143,7 +156,7 @@ export function MapWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [addLayer, projectSlug]);
+  }, [addLayer, projectId]);
 
   return (
     <>
@@ -179,6 +192,7 @@ export function MapWorkspace({
         </header>
 
         <UploadPanel onLayerAdded={addLayer} projectId={project?.id} />
+        <PmtilesPanel onLayerAdded={addLayer} projectId={project?.id} layers={layers} />
         <OrthoPanel
           onLayerAdded={addLayer}
           projectId={project?.id}
@@ -243,10 +257,10 @@ const TILE_THRESHOLD = 2000;
 async function hydrateVectorLayers(
   cancelled: boolean,
   addLayer: (l: ClientLayer) => void,
-  projectSlug?: string,
+  projectId?: string,
 ) {
-  const url = projectSlug
-    ? `/api/layers?projectSlug=${encodeURIComponent(projectSlug)}`
+  const url = projectId
+    ? `/api/layers?projectId=${encodeURIComponent(projectId)}`
     : "/api/layers";
   const list = await fetch(url, { cache: "no-store" });
   if (!list.ok) return;
@@ -254,6 +268,29 @@ async function hydrateVectorLayers(
   if (!body.ok || cancelled) return;
 
   for (const remote of body.layers) {
+    const pmtiles = remote.dataset?.kind === "pmtiles"
+      ? parsePmtilesLayerMetadata(remote.metadata, remote.dataset.source_uri)
+      : null;
+    if (pmtiles) {
+      addLayer({
+        id: remote.id,
+        name: remote.name,
+        color: pickColor(),
+        visible: true,
+        source: "pmtiles",
+        kind: "vector-tile",
+        sourceUrl: pmtilesSourceUrl(pmtiles.url),
+        sourceLayer: pmtiles.sourceLayer,
+        geometryKind: remote.geometry_kind,
+        featureCount: remote.feature_count,
+        bbox: pmtiles.bbox,
+        minzoom: pmtiles.minzoom,
+        maxzoom: pmtiles.maxzoom,
+        style: remote.style ?? null,
+      });
+      continue;
+    }
+
     if (remote.feature_count > TILE_THRESHOLD) {
       addLayer({
         id: remote.id,
@@ -295,10 +332,10 @@ async function hydrateVectorLayers(
 async function hydrateOrthomosaics(
   cancelled: boolean,
   addLayer: (l: ClientLayer) => void,
-  projectSlug?: string,
+  projectId?: string,
 ) {
-  const url = projectSlug
-    ? `/api/flights?projectSlug=${encodeURIComponent(projectSlug)}`
+  const url = projectId
+    ? `/api/flights?projectId=${encodeURIComponent(projectId)}`
     : "/api/flights";
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) return;

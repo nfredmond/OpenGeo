@@ -20,6 +20,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "playwright test",
     "gauntlet": "dotenv -e .env.local -- tsx --conditions=react-server scripts/phase1-gauntlet.ts",
+    "pmtiles:smoke": "dotenv -e .env.local -- node scripts/pmtiles-generator-smoke.mjs",
     "geo": "tsx cli/src/index.ts"
   },
   "dependencies": {

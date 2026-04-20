@@ -35,7 +35,17 @@ type InviteResponse = {
   error?: string;
 };
 
-export function SharePanel({ projectSlug }: { projectSlug: string }) {
+function projectApiPath(projectSlug: string, projectId: string, suffix: string): string {
+  return `/api/projects/${projectSlug}/${suffix}?projectId=${encodeURIComponent(projectId)}`;
+}
+
+export function SharePanel({
+  projectSlug,
+  projectId,
+}: {
+  projectSlug: string;
+  projectId: string;
+}) {
   const [state, setState] = useState<MembersPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,7 +54,9 @@ export function SharePanel({ projectSlug }: { projectSlug: string }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/projects/${projectSlug}/members`, { cache: "no-store" });
+      const res = await fetch(projectApiPath(projectSlug, projectId, "members"), {
+        cache: "no-store",
+      });
       const body = (await res.json()) as MembersPayload;
       if (!res.ok || !body.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
       setState(body);
@@ -53,7 +65,7 @@ export function SharePanel({ projectSlug }: { projectSlug: string }) {
     } finally {
       setLoading(false);
     }
-  }, [projectSlug]);
+  }, [projectSlug, projectId]);
 
   useEffect(() => {
     void load();
@@ -79,7 +91,9 @@ export function SharePanel({ projectSlug }: { projectSlug: string }) {
 
   return (
     <div className="space-y-6">
-      {canAdmin && <InviteForm projectSlug={projectSlug} onInvited={load} />}
+      {canAdmin && (
+        <InviteForm projectSlug={projectSlug} projectId={projectId} onInvited={load} />
+      )}
 
       <section className="rounded-md border border-[color:var(--border)] bg-[color:var(--card)] p-4">
         <header className="mb-3 flex items-center justify-between">
@@ -114,6 +128,7 @@ export function SharePanel({ projectSlug }: { projectSlug: string }) {
                 {canAdmin && m.scope === "project" && (
                   <RemoveButton
                     projectSlug={projectSlug}
+                    projectId={projectId}
                     userId={m.userId}
                     label={m.email ?? m.userId.slice(0, 8)}
                     onRemoved={load}
@@ -150,6 +165,7 @@ export function SharePanel({ projectSlug }: { projectSlug: string }) {
                   </div>
                   <CancelInviteButton
                     projectSlug={projectSlug}
+                    projectId={projectId}
                     invitationId={inv.id}
                     email={inv.email}
                     onCancelled={load}
@@ -161,16 +177,18 @@ export function SharePanel({ projectSlug }: { projectSlug: string }) {
         </section>
       )}
 
-      {canAdmin && <ShareLinkManager projectSlug={projectSlug} />}
+      {canAdmin && <ShareLinkManager projectSlug={projectSlug} projectId={projectId} />}
     </div>
   );
 }
 
 function InviteForm({
   projectSlug,
+  projectId,
   onInvited,
 }: {
   projectSlug: string;
+  projectId: string;
   onInvited: () => Promise<void>;
 }) {
   const [email, setEmail] = useState("");
@@ -186,7 +204,7 @@ function InviteForm({
     setNote(null);
     setError(null);
     try {
-      const res = await fetch(`/api/projects/${projectSlug}/members`, {
+      const res = await fetch(projectApiPath(projectSlug, projectId, "members"), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email: email.trim(), role }),
@@ -254,11 +272,13 @@ function InviteForm({
 
 function RemoveButton({
   projectSlug,
+  projectId,
   userId,
   label,
   onRemoved,
 }: {
   projectSlug: string;
+  projectId: string;
   userId: string;
   label: string;
   onRemoved: () => Promise<void>;
@@ -273,7 +293,7 @@ function RemoveButton({
     setError(null);
     try {
       const res = await fetch(
-        `/api/projects/${projectSlug}/members/${userId}`,
+        projectApiPath(projectSlug, projectId, `members/${userId}`),
         { method: "DELETE" },
       );
       const body = (await res.json()) as { ok: boolean; error?: string };
@@ -302,11 +322,13 @@ function RemoveButton({
 
 function CancelInviteButton({
   projectSlug,
+  projectId,
   invitationId,
   email,
   onCancelled,
 }: {
   projectSlug: string;
+  projectId: string;
   invitationId: string;
   email: string;
   onCancelled: () => Promise<void>;
@@ -321,7 +343,7 @@ function CancelInviteButton({
     setError(null);
     try {
       const res = await fetch(
-        `/api/projects/${projectSlug}/invitations/${invitationId}`,
+        projectApiPath(projectSlug, projectId, `invitations/${invitationId}`),
         { method: "DELETE" },
       );
       const body = (await res.json()) as { ok: boolean; error?: string };
@@ -358,7 +380,7 @@ type ShareLink = {
   createdAt: string;
 };
 
-function ShareLinkManager({ projectSlug }: { projectSlug: string }) {
+function ShareLinkManager({ projectSlug, projectId }: { projectSlug: string; projectId: string }) {
   const [links, setLinks] = useState<ShareLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -373,7 +395,9 @@ function ShareLinkManager({ projectSlug }: { projectSlug: string }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/projects/${projectSlug}/share-links`, { cache: "no-store" });
+      const res = await fetch(projectApiPath(projectSlug, projectId, "share-links"), {
+        cache: "no-store",
+      });
       const body = (await res.json()) as { ok: boolean; tokens?: ShareLink[]; error?: string };
       if (!res.ok || !body.ok) throw new Error(body.error ?? `Failed (${res.status})`);
       setLinks(body.tokens ?? []);
@@ -382,7 +406,7 @@ function ShareLinkManager({ projectSlug }: { projectSlug: string }) {
     } finally {
       setLoading(false);
     }
-  }, [projectSlug]);
+  }, [projectSlug, projectId]);
 
   useEffect(() => {
     void load();
@@ -396,7 +420,7 @@ function ShareLinkManager({ projectSlug }: { projectSlug: string }) {
       const days = expiresInDays.trim()
         ? Math.max(1, Math.min(3650, parseInt(expiresInDays, 10)))
         : undefined;
-      const res = await fetch(`/api/projects/${projectSlug}/share-links`, {
+      const res = await fetch(projectApiPath(projectSlug, projectId, "share-links"), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(days ? { expiresInDays: days } : {}),
@@ -418,7 +442,7 @@ function ShareLinkManager({ projectSlug }: { projectSlug: string }) {
     if (!confirm(`Revoke share link "${prefix}…"? Anyone holding it will lose access immediately.`)) return;
     try {
       const res = await fetch(
-        `/api/projects/${projectSlug}/share-links/${id}`,
+        projectApiPath(projectSlug, projectId, `share-links/${id}`),
         { method: "DELETE" },
       );
       const body = (await res.json()) as { ok: boolean; error?: string };

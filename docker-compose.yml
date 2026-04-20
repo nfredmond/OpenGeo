@@ -77,6 +77,20 @@ services:
     volumes:
       - nodeodm-data:/var/www/data
 
+  pmtiles_generator:
+    build:
+      context: ./services/pmtiles-generator
+      dockerfile: Dockerfile
+    image: opengeo-pmtiles-generator:latest
+    container_name: opengeo-pmtiles-generator
+    profiles: ["pmtiles"]
+    environment:
+      PORT: "8110"
+      TIPPECANOE_BIN: tippecanoe
+      # Leave PMTILES_GENERATOR_TOKEN unset in dev so auth is skipped.
+    ports:
+      - "8110:8110"
+
   # AI feature extractor (CPU-only dev image). LangSAM + GroundingDINO over
   # FastAPI. Not started by default — `docker compose --profile extractor up`
   # pulls this. Torch + GDAL + samgeo is a multi-GB image.

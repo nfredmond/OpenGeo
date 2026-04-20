@@ -76,6 +76,29 @@ vi.mock("@/lib/supabase/service", () => ({
   supabaseService: () => ({
     schema: (schemaName: string) => ({
       from: (table: string) => buildFromMock(table, true, schemaName),
+      rpc: async (fn: string, args: Record<string, unknown>) => {
+        if (schemaName !== "opengeo") throw new Error(`unexpected schema ${schemaName}`);
+        if (fn === "auth_user_by_email") {
+          return {
+            data:
+              state.existingAuthUser && state.existingAuthUser.email === args.p_email
+                ? [state.existingAuthUser]
+                : [],
+            error: null,
+          };
+        }
+        if (fn === "auth_users_by_ids") {
+          const ids = (args.p_user_ids as string[]) ?? [];
+          return {
+            data:
+              state.existingAuthUser && ids.includes(state.existingAuthUser.id)
+                ? [state.existingAuthUser]
+                : [],
+            error: null,
+          };
+        }
+        throw new Error(`unexpected rpc ${fn}`);
+      },
     }),
     auth: {
       admin: {
@@ -98,6 +121,9 @@ function buildFromMock(table: string, isService: boolean, schemaName: string = "
     _filters: [] as Array<{ col: string; val: unknown }>,
     select(cols: string) {
       chain._select = cols;
+      return chain;
+    },
+    returns() {
       return chain;
     },
     eq(col: string, val: unknown) {
@@ -150,6 +176,14 @@ function buildFromMock(table: string, isService: boolean, schemaName: string = "
     },
     // Terminal resolver for list queries — the route awaits on the builder directly.
     then(resolve: (v: { data: unknown[]; error: null }) => void) {
+      if (table === "projects") {
+        const slugFilter = chain._filters.find((f) => f.col === "slug");
+        const idFilter = chain._filters.find((f) => f.col === "id");
+        const matchesSlug = !slugFilter || state.project?.slug === slugFilter.val;
+        const matchesId = !idFilter || state.project?.id === idFilter.val;
+        resolve({ data: state.project && matchesSlug && matchesId ? [state.project] : [], error: null });
+        return;
+      }
       if (table === "users" && isService && schemaName === "auth") {
         resolve({ data: state.existingAuthUser ? [state.existingAuthUser] : [], error: null });
         return;
@@ -256,7 +290,7 @@ describe("POST /api/projects/[slug]/members", () => {
     expect(state.adminInviteCalls).toHaveLength(1);
     expect(state.adminInviteCalls[0].email).toBe("new@c.test");
     expect(state.adminInviteCalls[0].redirectTo).toContain("/auth/callback");
-    expect(state.adminInviteCalls[0].redirectTo).toContain("next=%2Fprojects%2Falpha");
+    expect(state.adminInviteCalls[0].redirectTo).toContain("next=%2Fmap%2Falpha%3FprojectId%3Dp1");
     expect(state.projectMemberInserts).toHaveLength(0);
   });
 

@@ -66,6 +66,10 @@ Three tiers of env vars, set via `vercel env add <KEY> production preview` or th
 - `ODM_API_URL`, `ODM_API_TOKEN`
 - `OPENGEO_EXTRACTOR=http`, `OPENGEO_EXTRACTOR_URL`, `OPENGEO_EXTRACTOR_TOKEN` (set after `modal deploy`)
 
+**PMTiles publishing:**
+- `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`
+- `PMTILES_GENERATOR_URL`, `PMTILES_GENERATOR_TOKEN` for production/preview if Tippecanoe runs outside Vercel. Leave `PMTILES_GENERATOR_URL` empty only when the Next.js runtime has a working `TIPPECANOE_BIN`.
+
 ### Supabase Auth redirect URLs
 
 Every Vercel deploy URL that will host magic-link sign-in needs its `/auth/callback` whitelisted. Supabase → Authentication → URL Configuration → Redirect URLs:
@@ -159,6 +163,27 @@ CPU inference is slow (3–10 min per tile). Use it to exercise the pipeline, no
 pnpm gauntlet --extractor=http     # real Python service at OPENGEO_EXTRACTOR_URL
 pnpm gauntlet                      # default = mock extractor (fast; CI baseline)
 ```
+
+## PMTiles generator service
+
+`POST /api/pmtiles/publish` can run Tippecanoe in-process for local dev, but
+production should set `PMTILES_GENERATOR_URL` and run the small container under
+`services/pmtiles-generator/` instead. This avoids relying on a native
+Tippecanoe binary inside Vercel serverless functions.
+
+```bash
+docker compose --profile pmtiles up -d pmtiles_generator
+
+# Then in .env.local:
+#   PMTILES_GENERATOR_URL=http://localhost:8110/generate
+#   PMTILES_GENERATOR_TOKEN=
+
+pnpm pmtiles:smoke
+```
+
+Production should set `PMTILES_GENERATOR_TOKEN` on both the generator service
+and Vercel. The generator returns raw `application/vnd.pmtiles` bytes; the
+Next.js route still owns R2 upload and project/layer registration.
 
 The `--extractor=http` step POSTs a real `/extract` request with a small public NAIP COG and asserts a non-empty `FeatureCollection` + populated `metrics.model`. Override the COG via `OPENGEO_GAUNTLET_COG_URL`. Expect minutes, not seconds, against the CPU docker extractor.
 

@@ -35,7 +35,7 @@ export default async function ProjectsPage() {
       visibility,
       created_at,
       updated_at,
-      org:orgs!inner (id, slug, name, plan),
+      org:orgs (id, slug, name, plan),
       datasets (id),
       drone_flights (id)
     `,
@@ -139,13 +139,13 @@ export default async function ProjectsPage() {
                     <code className="font-mono">{p.slug}</code>
                     <div className="flex items-center gap-3">
                       <Link
-                        href={`/projects/${p.slug}/share`}
+                        href={`/projects/${p.slug}/share?projectId=${p.id}`}
                         className="hover:text-[color:var(--foreground)]"
                       >
                         Share
                       </Link>
                       <Link
-                        href={`/map/${p.slug}`}
+                        href={`/map/${p.slug}?projectId=${p.id}`}
                         className="text-[color:var(--accent)] hover:underline"
                       >
                         Open map →

@@ -19,7 +19,10 @@ vi.mock("@/lib/env", () => ({
 
 type TokenState = {
   // Maps full token string → { projectId, scopes } OR undefined if invalid.
-  resolvedProject: Record<string, { projectId: string; scopes: string[] } | undefined>;
+  resolvedProject: Record<
+    string,
+    { projectId: string; scopes: string[]; expiresAt?: string | null } | undefined
+  >;
   // Admin-side data the routes walk to produce their response.
   project: { id: string; slug: string; name: string; org_id: string; visibility: string };
   org: { id: string; slug: string; name: string };
@@ -31,6 +34,8 @@ type TokenState = {
     geometry_kind: string;
     feature_count: number;
     style: Record<string, unknown> | null;
+    metadata?: Record<string, unknown> | null;
+    dataset?: { source_uri: string | null; kind: string | null } | null;
     updated_at: string;
   }>;
   flights: Array<{ id: string; project_id: string }>;
@@ -80,30 +85,50 @@ const state: TokenState = {
   },
 };
 
-function resetState() {
-  state.resolvedProject = {};
-  state.shareTokenRow = { expires_at: null, scopes: ["read:layers", "read:orthomosaics"] };
-}
+  function resetState() {
+    state.resolvedProject = {};
+    state.shareTokenRow = { expires_at: null, scopes: ["read:layers", "read:orthomosaics"] };
+    state.layers = [
+      {
+        id: "l1",
+        dataset_id: "d1",
+        name: "Parcels",
+        geometry_kind: "polygon",
+        feature_count: 3,
+        style: null,
+        updated_at: "2026-04-17T00:00:00Z",
+      },
+    ];
+  }
 
 vi.mock("@/lib/supabase/service", () => ({
   supabaseService: () => ({
     schema: (_schemaName: string) => ({
       from: (table: string) => buildFromMock(table),
       rpc: async (fn: string, args: Record<string, unknown>) => {
-        if (fn === "resolve_share_token") {
+        if (fn === "resolve_share_token_detail") {
           const match = state.resolvedProject[args.p_token as string];
-          return { data: match ? match.projectId : null, error: null };
+          return {
+            data: match
+              ? [
+                  {
+                    token_id: `token-${args.p_token}`,
+                    project_id: match.projectId,
+                    scopes: match.scopes,
+                    expires_at: match.expiresAt ?? null,
+                  },
+                ]
+              : [],
+            error: null,
+          };
+        }
+        if (fn === "layer_as_geojson") {
+          const fc = state.featureCollectionById[args.p_layer_id as string];
+          return { data: fc ?? { type: "FeatureCollection", features: [] }, error: null };
         }
         throw new Error(`unexpected rpc ${fn}`);
-      },
-    }),
-    rpc: async (fn: string, args: Record<string, unknown>) => {
-      if (fn === "layer_as_geojson") {
-        const fc = state.featureCollectionById[args.p_layer_id as string];
-        return { data: fc ?? { type: "FeatureCollection", features: [] }, error: null };
       }
-      throw new Error(`unexpected rpc ${fn}`);
-    },
+    }),
   }),
 }));
 
@@ -227,7 +252,20 @@ describe("GET /api/share/[token]/*", () => {
       projectId: "p1",
       scopes: ["read:orthomosaics"],
     };
-    state.shareTokenRow = { expires_at: null, scopes: ["read:orthomosaics"] };
+    const res = await layersRouteMod.GET(req("limited-token.xx"), ctx("limited-token.xx"));
+    expect(res.status).toBe(404);
+  });
+
+  it("layers: enforces scopes from the supplied token, not another token for the project", async () => {
+    state.resolvedProject["limited-token.xx"] = {
+      projectId: "p1",
+      scopes: ["read:orthomosaics"],
+    };
+    state.resolvedProject["broad-token.xx"] = {
+      projectId: "p1",
+      scopes: ["read:layers", "read:orthomosaics"],
+    };
+
     const res = await layersRouteMod.GET(req("limited-token.xx"), ctx("limited-token.xx"));
     expect(res.status).toBe(404);
   });
@@ -255,12 +293,61 @@ describe("GET /api/share/[token]/*", () => {
     expect(body.layers[0].featureCollection.type).toBe("FeatureCollection");
   });
 
+  it("layers: returns PMTiles metadata without asking layer_as_geojson", async () => {
+    state.resolvedProject["good-token.abcdefgh"] = {
+      projectId: "p1",
+      scopes: ["read:layers", "read:orthomosaics"],
+    };
+    state.layers = [
+      {
+        id: "l-pmtiles",
+        dataset_id: "d1",
+        name: "Hosted parcels",
+        geometry_kind: "polygon",
+        feature_count: 1000,
+        style: null,
+        metadata: {
+          pmtiles: {
+            url: "https://cdn.example.com/parcels.pmtiles",
+            sourceLayer: "parcels",
+            bbox: [-122, 38, -121, 39],
+            minzoom: 0,
+            maxzoom: 12,
+          },
+        },
+        dataset: {
+          source_uri: "https://cdn.example.com/parcels.pmtiles",
+          kind: "pmtiles",
+        },
+        updated_at: "2026-04-17T00:00:00Z",
+      },
+    ];
+
+    const res = await layersRouteMod.GET(
+      req("good-token.abcdefgh"),
+      ctx("good-token.abcdefgh"),
+    );
+    const body = (await res.json()) as {
+      ok: boolean;
+      layers: Array<{
+        id: string;
+        kind?: string;
+        pmtiles?: { url: string; sourceLayer: string };
+        featureCollection?: GeoJSON.FeatureCollection;
+      }>;
+    };
+    expect(res.status).toBe(200);
+    expect(body.layers[0].id).toBe("l-pmtiles");
+    expect(body.layers[0].kind).toBe("pmtiles");
+    expect(body.layers[0].pmtiles?.sourceLayer).toBe("parcels");
+    expect(body.layers[0].featureCollection).toBeUndefined();
+  });
+
   it("orthomosaics: 404 when the token lacks read:orthomosaics scope", async () => {
     state.resolvedProject["limited-token.xx"] = {
       projectId: "p1",
       scopes: ["read:layers"],
     };
-    state.shareTokenRow = { expires_at: null, scopes: ["read:layers"] };
     const res = await orthoRouteMod.GET(req("limited-token.xx"), ctx("limited-token.xx"));
     expect(res.status).toBe(404);
   });
