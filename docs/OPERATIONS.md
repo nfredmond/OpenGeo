@@ -28,7 +28,10 @@ pnpm db:migrate:local
 # Requires SUPABASE_DB_URL set in .env.local.
 pnpm db:migrate:remote
 
-# 6. Run the app.
+# 6. Check environment readiness.
+pnpm env:doctor -- --scope=core
+
+# 7. Run the app.
 pnpm dev
 ```
 
@@ -69,6 +72,17 @@ Three tiers of env vars, set via `vercel env add <KEY> production preview` or th
 **PMTiles publishing:**
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`
 - `PMTILES_GENERATOR_URL`, `PMTILES_GENERATOR_TOKEN` for production/preview if Tippecanoe runs outside Vercel. Leave `PMTILES_GENERATOR_URL` empty only when the Next.js runtime has a working `TIPPECANOE_BIN`.
+
+Before promoting a preview or production deploy, run the local env audit against
+the target surface:
+
+```bash
+pnpm env:doctor -- --target=preview --scope=core,pmtiles
+pnpm env:doctor -- --target=production --scope=all
+```
+
+The doctor prints variable names only. It does not print secret values. Use
+`--json` when piping the result into another script.
 
 ### Supabase Auth redirect URLs
 
@@ -194,6 +208,12 @@ curl -i https://<app-host>/api/pmtiles/publish
 
 The response reports missing variable names such as `R2_ACCOUNT_ID` or
 `PMTILES_GENERATOR_URL`; it never includes secret values.
+
+Local env checks use the same prerequisite model:
+
+```bash
+pnpm env:doctor -- --target=preview --scope=pmtiles
+```
 
 The container image is built by `.github/workflows/pmtiles-generator-image.yml`.
 Pull requests build the image without publishing it. Pushes to `main` and

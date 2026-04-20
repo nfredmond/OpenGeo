@@ -533,6 +533,8 @@ Tippecanoe.
   the service token.
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`,
   and `R2_PUBLIC_BASE_URL` are set.
+- `pnpm env:doctor -- --target=preview --scope=pmtiles` passes for the target
+  env values.
 - `GET /api/pmtiles/publish` returns `readiness.ok: true` for an authenticated
   user.
 

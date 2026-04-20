@@ -15,6 +15,7 @@
     "db:migrate:remote": "dotenv -e .env.local -- tsx scripts/db-migrate.ts remote",
     "db:reset:local": "docker compose exec -T postgres psql -U opengeo -d opengeo -f /migrations/reset.sql",
     "db:seed:local": "dotenv -e .env.local -- tsx scripts/db-seed.ts",
+    "env:doctor": "dotenv -e .env.local -- tsx scripts/env-doctor.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
