@@ -75,6 +75,21 @@ Every Vercel deploy URL that will host magic-link sign-in needs its `/auth/callb
 
 Missing entries surface as "invalid redirect URL" on magic-link click. The `uri_allow_list` value on the Supabase project is a comma-separated string (not a JSON array) — use the dashboard or Management API `PATCH /v1/projects/{ref}/config/auth`.
 
+`site_url` must also point at the hosted origin (`https://opengeo.vercel.app`) — otherwise magic-link emails embed `http://localhost:3000` as the `redirect_to` and sign-in round-trips fail in any environment except local dev.
+
+### PostgREST schema exposure
+
+The app reads/writes the `opengeo` schema via `supabase.schema("opengeo")`, not `public`. PostgREST only exposes schemas listed in `db_schema`. On any fresh Supabase project, patch:
+
+```bash
+curl -X PATCH "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/postgrest" \
+  -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"db_schema":"public,graphql_public,opengeo","db_extra_search_path":"public, extensions, opengeo"}'
+```
+
+Missing this surfaces as `"Invalid schema: opengeo"` from PostgREST on `/projects` and every `opengeo.*` route.
+
 ### Preview vs production
 
 - **Preview:** every PR (and every push to a non-`main` branch) auto-deploys via Vercel's GitHub integration. URL posted in the deployment summary.
