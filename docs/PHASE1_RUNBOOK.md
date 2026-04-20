@@ -543,6 +543,20 @@ The deployable generator image is published from GitHub Actions as
 workflow dispatch. Use that image on the container host and point
 `PMTILES_GENERATOR_URL` at its HTTPS `/generate` endpoint.
 
+The current Phase 2 release-hardening target is Fly.io:
+
+```bash
+fly apps create opengeo-pmtiles-generator-natford
+fly secrets set PMTILES_GENERATOR_TOKEN="<shared bearer token>" \
+  --app opengeo-pmtiles-generator-natford
+fly deploy --config services/pmtiles-generator/fly.toml
+curl -fsS https://opengeo-pmtiles-generator-natford.fly.dev/health
+```
+
+Set Vercel preview and production to
+`PMTILES_GENERATOR_URL=https://opengeo-pmtiles-generator-natford.fly.dev/generate`
+and use the same `PMTILES_GENERATOR_TOKEN` value that was set on Fly.
+
 Registering a hosted archive only needs a public PMTiles URL.
 
 **Do:**

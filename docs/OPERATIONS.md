@@ -237,6 +237,30 @@ vercel env add PMTILES_GENERATOR_URL preview
 vercel env add PMTILES_GENERATOR_TOKEN preview
 ```
 
+For the Phase 2 release-hardening path, deploy the published image to Fly.io
+with the checked-in config:
+
+```bash
+fly apps create opengeo-pmtiles-generator-natford
+fly secrets set PMTILES_GENERATOR_TOKEN="<shared bearer token>" \
+  --app opengeo-pmtiles-generator-natford
+fly deploy --config services/pmtiles-generator/fly.toml
+curl -fsS https://opengeo-pmtiles-generator-natford.fly.dev/health
+```
+
+`services/pmtiles-generator/fly.toml` pins
+`ghcr.io/nfredmond/opengeo-pmtiles-generator:sha-b61ee31`, listens on port
+`8110`, and defaults to Fly region `sjc`. Change `primary_region` before
+deployment if the hosted Supabase project is in a better-matched region.
+
+Cloudflare R2 must be configured before hosted publishing can pass readiness:
+
+- Bucket: `opengeo-assets`
+- Public base URL: set as `R2_PUBLIC_BASE_URL`
+- API credentials: object write access for this bucket only
+- CORS: allow `GET` and `HEAD` from the Vercel app origins and expose range
+  response headers for browser tile reads
+
 The `--extractor=http` step POSTs a real `/extract` request with a small public NAIP COG and asserts a non-empty `FeatureCollection` + populated `metrics.model`. Override the COG via `OPENGEO_GAUNTLET_COG_URL`. Expect minutes, not seconds, against the CPU docker extractor.
 
 **Production (Modal):**
