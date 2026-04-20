@@ -1,0 +1,8 @@
+# Python extractor service deploys to Modal per ADR-002 (GPU), not Vercel.
+# Including it causes `vercel link` to try to wire it in as a monorepo
+# FastAPI service and fail with "Cannot automatically update vercel.ts".
+services/
+
+# Dev planning / research docs — not needed in the build context.
+Dev planning documents/
+private/

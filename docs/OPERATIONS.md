@@ -32,17 +32,53 @@ pnpm db:migrate:remote
 pnpm dev
 ```
 
-## Vercel linking (once ready)
+## Vercel linking
 
-Nathaniel runs this interactively — do not auto-run from an agent session:
+Project is linked as of 2026-04-19. `.vercel/project.json` holds `projectId=prj_HzXY4pff59nAgTBOxHF1pyAVZQU9`, `orgId=team_NhbhSJLav3R9laaC7I4vEPrO`. Fresh-clone hydration:
 
 ```bash
-vercel login                              # interactive
-vercel link --yes --project opengeo       # creates .vercel/project.json
+vercel login                              # interactive (OAuth browser flow)
+vercel link --yes --project opengeo       # re-creates .vercel/project.json
 vercel env pull .env.local --yes          # hydrates .env.local from Vercel
 ```
 
-After the first link, re-run `vercel env pull` whenever secrets change in the Vercel dashboard.
+Re-run `vercel env pull` whenever secrets change in the Vercel dashboard. Re-linking note: Vercel's monorepo autodetect scans `services/` during `vercel link` *before* applying `.vercelignore`, so the FastAPI extractor under `services/extractor/` trips the monorepo wizard. Workaround: temporarily rename `services/` → `services.hidden/` for the duration of `vercel link`, then rename back. Python extractor deploys to Modal per ADR-002, not Vercel.
+
+## Deploys
+
+### Env target convention
+
+Set every required var on **both** `preview` and `production` Vercel targets. Vercel's first deploy for a newly linked project auto-promotes to the production alias (`opengeo.vercel.app`) regardless of source branch — a preview-only env set causes runtime `undefined` env reads → HTTP 500 on the public URL.
+
+Three tiers of env vars, set via `vercel env add <KEY> production preview` or the REST API:
+
+**Tier 1 — required for any deploy (preview + production):**
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- `ANTHROPIC_MODEL` (default: `claude-opus-4-7`)
+- `OPENGEO_EXTRACTOR=mock`
+- All `FEATURE_*` flags (default all to `false` on first deploy — flip on as providers are wired)
+
+**Tier 2 — required for AI features (`FEATURE_AI_NL_SQL`, `FEATURE_AI_STYLE_GEN`):**
+- `ANTHROPIC_API_KEY`
+
+**Tier 3 — required for drone pipeline (`FEATURE_DRONE_PIPELINE=true`):**
+- `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`
+- `ODM_API_URL`, `ODM_API_TOKEN`
+- `OPENGEO_EXTRACTOR=http`, `OPENGEO_EXTRACTOR_URL`, `OPENGEO_EXTRACTOR_TOKEN` (set after `modal deploy`)
+
+### Supabase Auth redirect URLs
+
+Every Vercel deploy URL that will host magic-link sign-in needs its `/auth/callback` whitelisted. Supabase → Authentication → URL Configuration → Redirect URLs:
+- `https://opengeo.vercel.app/auth/callback` (production alias)
+- `https://*-natford.vercel.app/auth/callback` (wildcard for preview URLs)
+- `http://localhost:3000/auth/callback` (local dev)
+
+Missing entries surface as "invalid redirect URL" on magic-link click. The `uri_allow_list` value on the Supabase project is a comma-separated string (not a JSON array) — use the dashboard or Management API `PATCH /v1/projects/{ref}/config/auth`.
+
+### Preview vs production
+
+- **Preview:** every PR (and every push to a non-`main` branch) auto-deploys via Vercel's GitHub integration. URL posted in the deployment summary.
+- **Production:** push to `main`, or `vercel --prod` from the linked repo. The first deploy for any newly linked project auto-promotes regardless of target flag — plan for that.
 
 ## Supabase linking
 

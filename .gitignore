@@ -94,3 +94,4 @@ checkpoints/
 # --- Tool output ---
 .turbo/
 .sst/
+.vercel

@@ -14,7 +14,7 @@ Derived from the phased plan in `Dev planning documents/research.md`. Dates are 
 - [x] `vercel.ts` config stub.
 - [x] `geo` CLI stub.
 - [x] CI pipeline (typecheck, lint, unit tests, migration drift check). *(GitHub Actions — `.github/workflows/ci.yml` — plus Dependabot grouped by stack area.)*
-- [ ] Public demo deployment — *deferred; first ship to Vercel preview only.*
+- [x] Vercel preview deployment shipped 2026-04-19 (`opengeo.vercel.app`, project `prj_HzXY4pff59nAgTBOxHF1pyAVZQU9`). Public demo / custom domain deferred to Phase 3 — `.vercel.app` URL is fine for sharing with clients and collaborators until there's a commercial commitment worth a domain.
 
 ## Phase 1 — Drone-to-insight MVP (months 1–4)
 
