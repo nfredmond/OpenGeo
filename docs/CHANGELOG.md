@@ -4,6 +4,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: Se
 
 ## [Unreleased]
 
+### Security
+- `20260419200000_function_search_path_hardening.sql` — adds `set search_path = public, opengeo` to 15 helper functions flagged by the Supabase advisor's `function_search_path_mutable` check: `is_member`, `can_edit`, `is_admin`, `org_of_{project,dataset,layer}`, `project_of_{dataset,layer,flight,orthomosaic,extraction}`, `has_project_access`, `bump_layer_feature_count`, `layer_as_geojson`, and `public.opengeo_layer_mvt`. Same class of bug as the `digest()` breakage in `resolve_share_token` (commit `dd52f11`) — defense in depth against hosted-vs-local `search_path` drift and schema-shadowing. No behavior change. Applied to hosted project `mqpkycymijjnhesrmmsr` via Supabase MCP; advisor confirms `function_search_path_mutable` count dropped from 15 to 0.
+- `docs/ROADMAP.md` reconciled against actual shipped surface: Phase 1 MVP items all ticked (Phase 1 shipped 2026-04-18 via `pnpm gauntlet`, walked against hosted Supabase 2026-04-19). Added "Operational / security hardening" subsection under Phase 2 for the in-stream fixes.
+
 ### Added
 - Project launched 2026-04-16.
 - `CLAUDE.md` — operating guide for Claude Code in this repo.

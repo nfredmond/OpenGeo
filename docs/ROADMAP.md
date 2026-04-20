@@ -13,21 +13,21 @@ Derived from the phased plan in `Dev planning documents/research.md`. Dates are 
 - [x] Docker Compose: local Postgres+PostGIS, Martin, TiTiler, pg_featureserv.
 - [x] `vercel.ts` config stub.
 - [x] `geo` CLI stub.
-- [ ] CI pipeline (typecheck, lint, unit tests, migration drift check) — *deferred to Phase 1 kickoff.*
+- [x] CI pipeline (typecheck, lint, unit tests, migration drift check). *(GitHub Actions — `.github/workflows/ci.yml` — plus Dependabot grouped by stack area.)*
 - [ ] Public demo deployment — *deferred; first ship to Vercel preview only.*
 
 ## Phase 1 — Drone-to-insight MVP (months 1–4)
 
-**Target:** week 16 (2026-08-06).
+**Target:** week 16 (2026-08-06). **Shipped 2026-04-18** (well ahead of target — see `docs/PHASE1_RUNBOOK.md` for the end-to-end walkthrough).
 
-- [ ] Basic map viewer with layer management and GeoJSON/Shapefile/GeoPackage upload into PostGIS.
-- [ ] OpenDroneMap integration: upload drone photos → queue ODM job → output orthomosaic (COG), DSM, point cloud → R2 storage → TiTiler serving.
-- [ ] AI feature extraction via segment-geospatial / SAM: user selects area → AI segments buildings, roads, vegetation → saved as PostGIS layers.
-- [ ] Natural language → PostGIS SQL (Claude API + schema injection), results rendered on map.
-- [ ] AI data cleaning: CRS auto-detect, address geocoding, column-type inference.
-- [ ] AI map styling: natural-language → MapLibre style JSON.
+- [x] Basic map viewer with layer management and GeoJSON/Shapefile/GeoPackage upload into PostGIS. *(GeoJSON + Shapefile shipped via `POST /api/datasets/upload` + `lib/ingest/decode-shapefile.ts` + `lib/ingest/reproject.ts`. GeoPackage deferred to Phase 2 — `@ngageoint/geopackage` depends on `better-sqlite3`, fragile on Vercel serverless.)*
+- [x] OpenDroneMap integration: upload drone photos → queue ODM job → output orthomosaic (COG), DSM, point cloud → R2 storage → TiTiler serving. *(`/api/flights/[id]/odm`, `/api/flights/[id]/orthomosaics`, `/api/orthomosaics/[id]/refresh`.)*
+- [x] AI feature extraction via segment-geospatial / SAM: user selects area → AI segments buildings, roads, vegetation → saved as PostGIS layers. *(`services/extractor/` Python FastAPI + samgeo LangSAM, `HttpExtractor` on the Next.js side, dispatched via `OPENGEO_EXTRACTOR={mock,http}`. See `docs/ADR/ADR-002-ai-feature-extractor-infra.md`.)*
+- [x] Natural language → PostGIS SQL (Claude API + schema injection), results rendered on map. *(`/api/ai/query`, rationale surfaced in UI, audit trail on `/review`.)*
+- [x] AI data cleaning: CRS auto-detect, column-type inference. *(`lib/ai/data-cleaning.ts`; decisions logged under `ai_events` kinds `crs_detect` + `column_type_infer`. Address geocoding pushed to Phase 2+.)*
+- [x] AI map styling: natural-language → MapLibre style JSON. *(`/api/layers/[id]/ai-style`, preview-first, per-geometry allow-list.)*
 
-**Exit criteria:** A signed-in user flies a site, uploads imagery, receives AI-extracted vector layers, and asks "show me all buildings larger than 200 sqm within 100m of the main road" — and sees the correct result rendered on the map.
+**Exit criteria:** A signed-in user flies a site, uploads imagery, receives AI-extracted vector layers, and asks "show me all buildings larger than 200 sqm within 100m of the main road" — and sees the correct result rendered on the map. *(Met 2026-04-18 via `pnpm gauntlet` covering NL→SQL + NL→style end-to-end. Walked against hosted Supabase 2026-04-19.)*
 
 ## Phase 2 — Platform capabilities (months 5–9)
 
@@ -42,6 +42,12 @@ Derived from the phased plan in `Dev planning documents/research.md`. Dates are 
 - [ ] PMTiles hosting for static dataset publishing; fork of Maputnik for style editing.
 
 **Exit criteria:** A consultant can onboard a client, share a project with three collaborators, publish a public PMTiles dashboard, and diff two flights of the same site. *(Onboard + share + vector diff shipped 2026-04-18; PMTiles dashboard remains.)*
+
+### Operational / security hardening (shipped in-stream)
+
+- [x] Hosted-vs-local parity fix on `resolve_share_token` — pgcrypto lives in `extensions` schema on hosted Supabase, not `public`. Migration `20260419100000_resolve_share_token_extensions_search_path.sql` (commit `dd52f11`).
+- [x] `function_search_path_mutable` sweep — every SECURITY DEFINER/INVOKER helper the Supabase advisor flagged now has an explicit `set search_path = public, opengeo` clause. Migration `20260419200000_function_search_path_hardening.sql`. 15 advisor warnings cleared.
+- [x] Phase 2 runbook addendum (`P2.1–P2.4`) appended to `docs/PHASE1_RUNBOOK.md` covering invite-by-email, share link mint + incognito verification, flight diff with AI narration, and revoke-with-404 verification.
 
 ## Phase 3 — Expansion toward platform (months 10–18)
 
