@@ -1,7 +1,7 @@
 "use client";
 
 import { Database } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ClientLayer } from "./layer-panel";
 import { pickColor } from "./colors";
 import { pmtilesSourceUrl } from "@/lib/pmtiles";
@@ -15,6 +15,16 @@ const geometryKinds = [
   "multipolygon",
   "geometrycollection",
 ] as const;
+
+type PublishReadiness = {
+  ok: boolean;
+  missing: string[];
+  warnings?: string[];
+  generation?: {
+    mode: "remote" | "local";
+    localBinary: string | null;
+  };
+};
 
 export function PmtilesPanel({
   onLayerAdded,
@@ -36,10 +46,44 @@ export function PmtilesPanel({
   const [publishName, setPublishName] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [readiness, setReadiness] = useState<PublishReadiness | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
 
   const publishableLayers = layers.filter(
     (layer) => layer.kind !== "raster" && layer.source !== "pmtiles",
   );
+  const publishSetupBlocked = readinessLoading || readiness?.ok === false;
+
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    setReadinessLoading(true);
+    setReadinessError(null);
+
+    fetch("/api/pmtiles/publish", { signal: controller.signal })
+      .then(async (res) => {
+        const body = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          readiness?: PublishReadiness;
+          error?: string;
+        };
+        if (!res.ok || !body.ok || !body.readiness) {
+          throw new Error(body.error ?? `PMTiles readiness check failed (${res.status}).`);
+        }
+        setReadiness(body.readiness);
+      })
+      .catch((error: Error) => {
+        if (error.name === "AbortError") return;
+        setReadinessError(error.message);
+        setReadiness(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setReadinessLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [open]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -112,6 +156,10 @@ export function PmtilesPanel({
     if (publishing) return;
     const targetId = selectedLayerId || publishableLayers[0]?.id;
     if (!targetId) return;
+    if (readiness?.ok === false) {
+      setPublishError(formatReadinessMessage(readiness));
+      return;
+    }
     setPublishing(true);
     setPublishError(null);
     try {
@@ -188,6 +236,25 @@ export function PmtilesPanel({
       {open && (
         <div className="mt-3 grid gap-3 text-xs">
           <form onSubmit={publishExisting} className="grid gap-2">
+            {readinessLoading && (
+              <p className="text-xs text-[color:var(--muted)]">
+                Checking PMTiles publishing setup...
+              </p>
+            )}
+            {readinessError && (
+              <p className="text-xs text-amber-600">{readinessError}</p>
+            )}
+            {readiness && (
+              <p
+                className={
+                  readiness.ok
+                    ? "text-xs text-[color:var(--muted)]"
+                    : "text-xs text-red-500"
+                }
+              >
+                {formatReadinessMessage(readiness)}
+              </p>
+            )}
             <div className="grid grid-cols-[1fr_auto] gap-2">
               <select
                 value={selectedLayerId || publishableLayers[0]?.id || ""}
@@ -207,7 +274,7 @@ export function PmtilesPanel({
               </select>
               <button
                 type="submit"
-                disabled={publishing || publishableLayers.length === 0}
+                disabled={publishing || publishableLayers.length === 0 || publishSetupBlocked}
                 className="rounded bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90 disabled:opacity-50"
               >
                 {publishing ? "Publishing..." : "Publish"}
@@ -280,4 +347,13 @@ function basenameFromUrl(raw: string): string {
   } catch {
     return "PMTiles layer";
   }
+}
+
+function formatReadinessMessage(readiness: PublishReadiness): string {
+  if (!readiness.ok) {
+    return `Publishing unavailable: ${readiness.missing.join(", ")}.`;
+  }
+  if (readiness.warnings?.length) return readiness.warnings[0];
+  if (readiness.generation?.mode === "remote") return "Publishing is ready.";
+  return `Publishing will use local Tippecanoe: ${readiness.generation?.localBinary ?? "tippecanoe"}.`;
 }
