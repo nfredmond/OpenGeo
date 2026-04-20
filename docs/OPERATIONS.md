@@ -185,6 +185,24 @@ Production should set `PMTILES_GENERATOR_TOKEN` on both the generator service
 and Vercel. The generator returns raw `application/vnd.pmtiles` bytes; the
 Next.js route still owns R2 upload and project/layer registration.
 
+The container image is built by `.github/workflows/pmtiles-generator-image.yml`.
+Pull requests build the image without publishing it. Pushes to `main` and
+manual workflow runs publish GHCR tags under:
+
+```text
+ghcr.io/nfredmond/opengeo-pmtiles-generator
+```
+
+Use the immutable `sha-<commit>` tag for production. After deploying the
+container, set the Vercel environment variables:
+
+```bash
+vercel env add PMTILES_GENERATOR_URL production
+vercel env add PMTILES_GENERATOR_TOKEN production
+vercel env add PMTILES_GENERATOR_URL preview
+vercel env add PMTILES_GENERATOR_TOKEN preview
+```
+
 The `--extractor=http` step POSTs a real `/extract` request with a small public NAIP COG and asserts a non-empty `FeatureCollection` + populated `metrics.model`. Override the COG via `OPENGEO_GAUNTLET_COG_URL`. Expect minutes, not seconds, against the CPU docker extractor.
 
 **Production (Modal):**

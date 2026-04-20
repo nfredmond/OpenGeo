@@ -1,0 +1,57 @@
+name: PMTiles generator image
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/pmtiles-generator-image.yml"
+      - "services/pmtiles-generator/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/pmtiles-generator-image.yml"
+      - "services/pmtiles-generator/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: nfredmond/opengeo-pmtiles-generator
+
+jobs:
+  build:
+    name: Build image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and maybe publish
+        uses: docker/build-push-action@v6
+        with:
+          context: services/pmtiles-generator
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
