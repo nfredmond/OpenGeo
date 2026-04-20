@@ -54,3 +54,16 @@ pnpm pmtiles:smoke
 
 The Next.js app still supports direct local generation with
 `TIPPECANOE_BIN=tippecanoe` when `PMTILES_GENERATOR_URL` is empty.
+
+## Image Publishing
+
+GitHub Actions builds this image on pull requests and publishes it to GHCR on
+`main` or manual workflow dispatch:
+
+```text
+ghcr.io/nfredmond/opengeo-pmtiles-generator:<tag>
+```
+
+The workflow emits `sha-<commit>` tags for reproducible deployments and
+`latest` for the default branch. Point the container host at `/generate` and
+set `PMTILES_GENERATOR_URL` in Vercel to that public HTTPS endpoint.
