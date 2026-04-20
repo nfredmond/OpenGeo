@@ -1,12 +1,6 @@
 // OpenGeo — Vercel project config (TypeScript).
 // Uses @vercel/config (v1) per the 2026-02 Vercel knowledge update.
-// Install with `pnpm add -D @vercel/config` when linking to Vercel.
-//
-// This file is authored to fall back gracefully if @vercel/config is not yet
-// installed; Vercel will pick it up once the dep is present. Until then, this
-// file documents the intended deployment config.
 
-// @ts-expect-error — @vercel/config is optional until the project is Vercel-linked.
 import type { VercelConfig } from "@vercel/config/v1";
 
 export const config: VercelConfig = {
