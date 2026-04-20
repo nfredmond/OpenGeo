@@ -36,12 +36,14 @@ export const POST = withRoute<{ id: string }>(
       );
     }
 
-    // set_extraction_qa self-authorizes via opengeo.can_edit() and returns the
-    // output_layer_id so the client can refresh its view.
-    const { data: layerId, error } = await supabase.rpc("set_extraction_qa", {
-      p_extraction_id: paramsParsed.data.id,
-      p_qa_status: bodyParsed.data.qaStatus,
-    });
+    // set_extraction_qa self-authorizes via project-level editor access and
+    // returns the output_layer_id so the client can refresh its view.
+    const { data: layerId, error } = await supabase
+      .schema("opengeo")
+      .rpc("set_extraction_qa", {
+        p_extraction_id: paramsParsed.data.id,
+        p_qa_status: bodyParsed.data.qaStatus,
+      });
     if (error) {
       const status = error.code === "42501" ? 403 : error.code === "P0002" ? 404 : 400;
       return NextResponse.json({ ok: false, error: error.message }, { status });

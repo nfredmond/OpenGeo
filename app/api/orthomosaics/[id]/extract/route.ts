@@ -113,11 +113,13 @@ export const POST = withRoute<{ id: string }>(
     // RPC. This keeps features in the same shape as uploaded vector layers
     // so the viewer, tiles, and AI query all treat them identically.
     const layerName = bodyParsed.data.layerName ?? `AI: ${bodyParsed.data.prompt}`.slice(0, 120);
-    const { data: layerId, error: ingestErr } = await supabase.rpc("ingest_geojson", {
-      p_project_id: ortho.flight.project_id,
-      p_name: layerName,
-      p_feature_collection: result.featureCollection,
-    });
+    const { data: layerId, error: ingestErr } = await supabase
+      .schema("opengeo")
+      .rpc("ingest_geojson", {
+        p_project_id: ortho.flight.project_id,
+        p_name: layerName,
+        p_feature_collection: result.featureCollection,
+      });
     if (ingestErr) {
       const status = ingestErr.code === "42501" ? 403 : 400;
       return NextResponse.json({ ok: false, error: ingestErr.message }, { status });

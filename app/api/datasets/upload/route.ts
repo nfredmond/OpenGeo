@@ -61,11 +61,13 @@ export const POST = withRoute("datasets.upload", async (req) => {
     return NextResponse.json({ ok: false, error: projectId.error }, { status: projectId.status });
   }
 
-  const { data: layerId, error } = await supabase.rpc("ingest_geojson", {
-    p_project_id: projectId.id,
-    p_name: parsed.data.name,
-    p_feature_collection: parsed.data.featureCollection,
-  });
+  const { data: layerId, error } = await supabase
+    .schema("opengeo")
+    .rpc("ingest_geojson", {
+      p_project_id: projectId.id,
+      p_name: parsed.data.name,
+      p_feature_collection: parsed.data.featureCollection,
+    });
 
   if (error) {
     const status = error.code === "42501" ? 403 : 400;
@@ -175,11 +177,13 @@ async function handleShapefileUpload(
     },
   });
 
-  const { data: layerId, error } = await supabase.rpc("ingest_geojson", {
-    p_project_id: projectId.id,
-    p_name: name,
-    p_feature_collection: fc,
-  });
+  const { data: layerId, error } = await supabase
+    .schema("opengeo")
+    .rpc("ingest_geojson", {
+      p_project_id: projectId.id,
+      p_name: name,
+      p_feature_collection: fc,
+    });
 
   if (error) {
     const status = error.code === "42501" ? 403 : 400;
@@ -212,9 +216,11 @@ async function resolveProjectId(
   actorId: string,
 ): Promise<{ id: string } | { error: string; status: number }> {
   if (explicit) return { id: explicit };
-  const { data, error } = await supabase.rpc("default_project_for", {
-    p_user_id: actorId,
-  });
+  const { data, error } = await supabase
+    .schema("opengeo")
+    .rpc("default_project_for", {
+      p_user_id: actorId,
+    });
   if (error) {
     return { error: `Could not resolve default project: ${error.message}`, status: 500 };
   }

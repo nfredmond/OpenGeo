@@ -332,7 +332,8 @@ without a conversation:
 - **Pixel-level raster diff between orthomosaics.** Needs GDAL/Python and a
   second services/\* deployment; Phase 2.5. Feature-level diff (Phase 2 Step 3)
   covers vector-on-vector; raster-on-raster is the remaining half.
-- **PMTiles hosting + Maputnik fork.** Later Phase 2 wedge.
+- **Maputnik-style editor.** PMTiles publishing is in place; a full style
+  editor for published vector tiles remains separate.
 - **Semantic layer search via Clay embeddings.** Phase 3 candidate.
 
 ---
@@ -383,10 +384,10 @@ a collaborator in without giving them the whole org.
 - The invite form shows a success toast and the invitation appears under
   **Pending invitations** with the role you chose.
 - After the collaborator lands via the magic link, they end up on
-  `/projects/<slug>` with the project visible (no auto-org created for
-  them).
-- On `/projects/<slug>/share` the invitation row moves from **Pending** to
-  **Members**.
+  `/map/<slug>?projectId=<uuid>` with the project visible (no auto-org
+  created for them).
+- On `/projects/<slug>/share?projectId=<uuid>` the invitation row moves from
+  **Pending** to **Members**.
 
 **If it fails:**
 
@@ -408,7 +409,7 @@ URL to a client. Tokens are hashed at rest (mirrors the `api_keys` pattern).
 
 **Do:**
 
-- On `/projects/<slug>/share`, scroll to **Public share links**.
+- On `/projects/<slug>/share?projectId=<uuid>`, scroll to **Public share links**.
 - Enter an expiry in days (e.g. `7`), click **Mint**.
 - Copy the token from the one-time display (it will never appear again),
   then click **Dismiss**.
@@ -451,9 +452,9 @@ the new layer's metadata.
 
 **Do:**
 
-- Open `/map/<slug>` for a project that already has at least two vector
-  layers in it (the quickest seed: run the Phase 1 extract loop twice with
-  a tweak, or upload two GeoJSON files with small differences).
+- Open `/map/<slug>?projectId=<uuid>` for a project that already has at least
+  two vector layers in it (the quickest seed: run the Phase 1 extract loop
+  twice with a tweak, or upload two GeoJSON files with small differences).
 - In the sidebar, scroll to **Compare layers**. Pick a **From** and a
   **To** layer, then click **Compare**.
 
@@ -494,7 +495,8 @@ immediately.
 
 **Do:**
 
-- In the normal (logged-in) window, return to `/projects/<slug>/share`.
+- In the normal (logged-in) window, return to
+  `/projects/<slug>/share?projectId=<uuid>`.
 - In **Public share links**, click **Revoke** on the token you minted in
   P2.2.
 - In the still-open incognito window from P2.2, reload `/p/<token>`.
@@ -516,6 +518,56 @@ immediately.
   but the page still loads, the client is caching. Hard-reload.
 - `/projects/<slug>/share` throws on revoke → the DELETE route is gated
   on `has_project_access(project_id, 'admin')`. Sign in as an admin.
+
+## P2.5 Publish or register a PMTiles archive
+
+OpenGeo can either register an existing public `.pmtiles` archive or publish
+one of the current PostGIS-backed vector layers to Cloudflare R2 using
+Tippecanoe.
+
+**Prereqs for publishing:**
+
+- Either `PMTILES_GENERATOR_URL` points at the generator service, or
+  `TIPPECANOE_BIN` points to a working local `tippecanoe` binary.
+- If the generator service has auth enabled, `PMTILES_GENERATOR_TOKEN` matches
+  the service token.
+- `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`,
+  and `R2_PUBLIC_BASE_URL` are set.
+
+Registering a hosted archive only needs a public PMTiles URL.
+
+**Do:**
+
+- Open `/map/<slug>?projectId=<uuid>` as a project editor.
+- In the sidebar, click **Add PMTiles layer**.
+- To publish an existing layer, choose a vector layer and click **Publish**.
+- To register an existing archive, paste a public HTTPS URL ending in
+  `.pmtiles`, set the source layer name used inside the archive, choose the
+  geometry kind, and click **Add**.
+
+**Expect:**
+
+- The layer appears immediately in the map and in the layer list as a
+  `pmtiles` source.
+- Reloading the map rehydrates the layer from `/api/layers`.
+- If the project has an active share link with `read:layers`, `/p/<token>`
+  renders the same PMTiles layer without fetching GeoJSON features.
+- `pnpm pmtiles:smoke` returns a non-empty PMTiles archive from the configured
+  generator service.
+
+**If it fails:**
+
+- Publish returns 502 → the remote generator service failed or rejected the
+  request. Check `PMTILES_GENERATOR_URL`, `PMTILES_GENERATOR_TOKEN`, and the
+  service logs.
+- Publish returns 503 → local Tippecanoe is missing, or the R2 env vars are
+  not set.
+- Register returns 400 → the URL must be public `http`/`https` and the path
+  must end in `.pmtiles`.
+- The map shows no tiles → confirm the archive has CORS enabled and that
+  **Source layer** matches the internal layer name in the PMTiles archive.
+- The route returns 403 → the signed-in user needs editor access to the
+  target project.
 
 ---
 

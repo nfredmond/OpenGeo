@@ -114,24 +114,22 @@ export const POST = withRoute("ai.query", async (req) => {
     } else if (!actorId) {
       warning = "Sign in to save AI queries as layers.";
     } else {
-      const { data: projectId, error: projectErr } = await supabase.rpc(
-        "default_project_for",
-        { p_user_id: actorId },
-      );
+      const { data: projectId, error: projectErr } = await supabase
+        .schema("opengeo")
+        .rpc("default_project_for", { p_user_id: actorId });
       if (projectErr) {
         console.error("ai/query: default_project_for failed:", projectErr);
         warning = `Persist failed: ${projectErr.message}`;
       } else if (!projectId) {
         warning = "No default project found — result not saved.";
       } else {
-        const { data: newLayerId, error: ingestErr } = await supabase.rpc(
-          "ingest_geojson",
-          {
+        const { data: newLayerId, error: ingestErr } = await supabase
+          .schema("opengeo")
+          .rpc("ingest_geojson", {
             p_project_id: projectId,
             p_name: generated.label,
             p_feature_collection: fc,
-          },
-        );
+          });
         if (ingestErr) {
           console.error("ai/query: ingest_geojson failed:", ingestErr);
           warning = `Persist failed: ${ingestErr.message}`;

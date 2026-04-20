@@ -31,9 +31,11 @@ export const GET = withRoute<{ id: string }>("layers.get", async (_req, ctx) => 
   if (layerErr) return NextResponse.json({ ok: false, error: layerErr.message }, { status: 500 });
   if (!layer) return NextResponse.json({ ok: false, error: "Layer not found." }, { status: 404 });
 
-  const { data: fc, error: fcErr } = await supabase.rpc("layer_as_geojson", {
-    p_layer_id: parsed.data.id,
-  });
+  const { data: fc, error: fcErr } = await supabase
+    .schema("opengeo")
+    .rpc("layer_as_geojson", {
+      p_layer_id: parsed.data.id,
+    });
   if (fcErr) {
     return NextResponse.json({ ok: false, error: fcErr.message }, { status: 500 });
   }

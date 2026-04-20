@@ -16,9 +16,11 @@ const ParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
+type ProjectLookup = { id: string };
+
 export const DELETE = withRoute<{ slug: string; id: string }>(
   "projects.share-links.revoke",
-  async (_req, ctx) => {
+  async (req, ctx) => {
     const rawParams = await ctx.params;
     const parsedParams = ParamsSchema.safeParse(rawParams);
     if (!parsedParams.success) {
@@ -35,14 +37,40 @@ export const DELETE = withRoute<{ slug: string; id: string }>(
       return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
     }
 
-    const { data: project, error: projErr } = await supabase
+    const projectId = new URL(req.url).searchParams.get("projectId");
+    if (projectId && !z.string().uuid().safeParse(projectId).success) {
+      return NextResponse.json({ ok: false, error: "Invalid project id." }, { status: 400 });
+    }
+
+    const projectQuery = supabase
       .schema("opengeo")
       .from("projects")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
-    if (projErr) {
-      return NextResponse.json({ ok: false, error: projErr.message }, { status: 500 });
+      .select("id");
+    let project: ProjectLookup | null = null;
+    if (projectId) {
+      const { data, error: projErr } = await projectQuery
+        .eq("id", projectId)
+        .eq("slug", slug)
+        .maybeSingle<ProjectLookup>();
+      if (projErr) {
+        return NextResponse.json({ ok: false, error: projErr.message }, { status: 500 });
+      }
+      project = data ?? null;
+    } else {
+      const { data, error: projErr } = await projectQuery
+        .eq("slug", slug)
+        .limit(2)
+        .returns<ProjectLookup[]>();
+      if (projErr) {
+        return NextResponse.json({ ok: false, error: projErr.message }, { status: 500 });
+      }
+      if ((data ?? []).length > 1) {
+        return NextResponse.json(
+          { ok: false, error: "Project slug is ambiguous. Open the project from the Projects list." },
+          { status: 409 },
+        );
+      }
+      project = (data ?? [])[0] ?? null;
     }
     if (!project) {
       return NextResponse.json({ ok: false, error: "Project not found." }, { status: 404 });
@@ -51,7 +79,7 @@ export const DELETE = withRoute<{ slug: string; id: string }>(
     const { data: canAdmin, error: rpcErr } = await supabase
       .schema("opengeo")
       .rpc("has_project_access", {
-        target_project: (project as { id: string }).id,
+        target_project: project.id,
         min_role: "admin",
       });
     if (rpcErr) {
@@ -70,7 +98,7 @@ export const DELETE = withRoute<{ slug: string; id: string }>(
       .from("project_share_tokens")
       .update({ revoked_at: new Date().toISOString() })
       .eq("id", id)
-      .eq("project_id", (project as { id: string }).id);
+      .eq("project_id", project.id);
     if (updateErr) {
       return NextResponse.json({ ok: false, error: updateErr.message }, { status: 500 });
     }

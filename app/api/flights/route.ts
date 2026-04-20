@@ -84,9 +84,11 @@ export const POST = withRoute("flights.create", async (req) => {
 
   let projectId = parsed.data.projectId;
   if (!projectId) {
-    const { data, error } = await supabase.rpc("default_project_for", {
-      p_user_id: userData.user.id,
-    });
+    const { data, error } = await supabase
+      .schema("opengeo")
+      .rpc("default_project_for", {
+        p_user_id: userData.user.id,
+      });
     if (error || !data) {
       return NextResponse.json(
         { ok: false, error: "Could not resolve default project." },
@@ -96,8 +98,8 @@ export const POST = withRoute("flights.create", async (req) => {
     projectId = data as string;
   }
 
-  // RLS on drone_flights enforces can_edit(org_of_project(project_id)); we do
-  // not re-check it here. The insert will fail if the caller lacks the role.
+  // RLS on drone_flights enforces has_project_access(project_id, 'editor');
+  // we do not re-check it here. The insert fails if the caller lacks the role.
   const { data, error } = await supabase
     .schema("opengeo")
     .from("drone_flights")

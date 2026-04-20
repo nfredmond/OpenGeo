@@ -6,6 +6,7 @@ import { BasemapPicker } from "@/components/map/basemap-picker";
 import { defaultBasemapId, type BasemapId } from "@/components/map/basemaps";
 import { pickColor } from "@/components/map/colors";
 import { publicEnv } from "@/lib/public-env";
+import { pmtilesSourceUrl, type PmtilesLayerMetadata } from "@/lib/pmtiles";
 
 type ShareProjectResponse = {
   ok: boolean;
@@ -22,8 +23,10 @@ type ShareLayer = {
   geometryKind: string;
   featureCount: number;
   style: Record<string, unknown> | null;
-  featureCollection: GeoJSON.FeatureCollection;
-};
+} & (
+  | { kind?: "geojson"; featureCollection: GeoJSON.FeatureCollection }
+  | { kind: "pmtiles"; pmtiles: PmtilesLayerMetadata }
+);
 
 type ShareOrtho = {
   id: string;
@@ -105,17 +108,31 @@ export function PublicMap({ token }: { token: string }) {
   useEffect(() => {
     if (!mapRef.current) return;
     for (const l of layers) {
-      mapRef.current.addGeoJsonLayer({
-        id: l.id,
-        name: l.name,
-        color: pickColor(),
-        visible: true,
-        source: "remote",
-        kind: "vector",
-        data: l.featureCollection,
-        featureCount: l.featureCount,
-        style: (l.style as { paint?: Record<string, unknown>; layout?: Record<string, unknown> }) ?? null,
-      });
+      if (l.kind === "pmtiles") {
+        mapRef.current.addVectorTileLayer({
+          id: l.id,
+          name: l.name,
+          color: pickColor(),
+          sourceUrl: pmtilesSourceUrl(l.pmtiles.url),
+          sourceLayer: l.pmtiles.sourceLayer,
+          geometryKind: l.geometryKind,
+          bbox: l.pmtiles.bbox,
+          minzoom: l.pmtiles.minzoom,
+          maxzoom: l.pmtiles.maxzoom,
+        });
+      } else {
+        mapRef.current.addGeoJsonLayer({
+          id: l.id,
+          name: l.name,
+          color: pickColor(),
+          visible: true,
+          source: "remote",
+          kind: "vector",
+          data: l.featureCollection,
+          featureCount: l.featureCount,
+          style: (l.style as { paint?: Record<string, unknown>; layout?: Record<string, unknown> }) ?? null,
+        });
+      }
     }
     for (const o of orthomosaics) {
       if (!o.cogUrl) continue;

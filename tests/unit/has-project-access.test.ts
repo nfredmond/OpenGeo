@@ -29,6 +29,7 @@ describeFn("has_project_access + invitation trigger", () => {
   let userEditor: string;
   let userViewer: string;
   let userInvited: string;
+  let userProjectViewer: string;
   let userStranger: string;
 
   async function impersonate(userId: string | null) {
@@ -49,6 +50,19 @@ describeFn("has_project_access + invitation trigger", () => {
     return rows[0].ok;
   }
 
+  async function expectSqlRejection(
+    action: () => Promise<unknown>,
+    message: RegExp,
+  ) {
+    await client.query("savepoint expected_error");
+    try {
+      await expect(action()).rejects.toThrow(message);
+    } finally {
+      await client.query("rollback to savepoint expected_error").catch(() => {});
+      await client.query("release savepoint expected_error").catch(() => {});
+    }
+  }
+
   async function insertUser(email: string): Promise<string> {
     const { rows } = await client.query<{ id: string }>(
       `insert into auth.users (id, email) values (gen_random_uuid(), $1) returning id`,
@@ -61,15 +75,15 @@ describeFn("has_project_access + invitation trigger", () => {
     client = new Client({ connectionString: url });
     await client.connect();
     // Run everything in a single transaction we roll back at the end so we
-    // don't pollute the dev database between runs. Wrapping each test in a
-    // transaction would be ideal but pg client doesn't support savepoints
-    // trivially; a top-level rollback is good enough for read-mostly RLS.
+    // don't pollute the dev database between runs. Expected SQL errors are
+    // wrapped in savepoints so they do not abort the outer transaction.
     await client.query("begin");
 
     userOwner = await insertUser(`owner+${Date.now()}@opengeo.test`);
     userEditor = await insertUser(`editor+${Date.now()}@opengeo.test`);
     userViewer = await insertUser(`viewer+${Date.now()}@opengeo.test`);
     userInvited = await insertUser(`invited+${Date.now()}@opengeo.test`);
+    userProjectViewer = await insertUser(`project-viewer+${Date.now()}@opengeo.test`);
     userStranger = await insertUser(`stranger+${Date.now()}@opengeo.test`);
 
     // Two orgs so we can prove cross-org isolation.
@@ -112,15 +126,15 @@ describeFn("has_project_access + invitation trigger", () => {
     // of projectA.
     await client.query(
       `delete from opengeo.orgs
-        where id in (select org_id from opengeo.members where user_id = $1)`,
-      [userInvited],
+        where id in (select org_id from opengeo.members where user_id in ($1, $2))`,
+      [userInvited, userProjectViewer],
     );
 
     // Direct project_members grant: strangers get access only to projectA.
     await client.query(
       `insert into opengeo.project_members (project_id, user_id, role)
-       values ($1, $2, 'editor')`,
-      [projectA, userInvited],
+       values ($1, $2, 'editor'), ($1, $3, 'viewer')`,
+      [projectA, userInvited, userProjectViewer],
     );
   });
 
@@ -264,5 +278,83 @@ describeFn("has_project_access + invitation trigger", () => {
       [userInvited],
     );
     expect(rows[0].id).toBe(projectA);
+  });
+
+  it("ingest_geojson allows project-only editors and denies project-only viewers", async () => {
+    const featureCollection = {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [-121.5, 39.2] },
+          properties: { name: "project-only editor" },
+        },
+      ],
+    };
+
+    await impersonate(userInvited);
+    const { rows } = await client.query<{ layer_id: string }>(
+      `select opengeo.ingest_geojson($1::uuid, $2, $3::jsonb) as layer_id`,
+      [projectA, "Project-only editor ingest", JSON.stringify(featureCollection)],
+    );
+    expect(rows[0].layer_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+
+    await impersonate(userProjectViewer);
+    await expectSqlRejection(
+      () =>
+        client.query(
+          `select opengeo.ingest_geojson($1::uuid, $2, $3::jsonb) as layer_id`,
+          [projectA, "Project-only viewer ingest", JSON.stringify(featureCollection)],
+        ),
+      /Not authorized/,
+    );
+  });
+
+  it("set_extraction_qa allows project-only editors and denies project-only viewers", async () => {
+    const { rows: flightRows } = await client.query<{ id: string }>(
+      `insert into opengeo.drone_flights (project_id, flown_at, metadata)
+       values ($1, now(), '{}'::jsonb)
+       returning id`,
+      [projectA],
+    );
+    const { rows: orthoRows } = await client.query<{ id: string }>(
+      `insert into opengeo.orthomosaics (flight_id, status, cog_url)
+       values ($1, 'ready', 'https://example.com/ortho.tif')
+       returning id`,
+      [flightRows[0].id],
+    );
+    const { rows: extractionRows } = await client.query<{ id: string }>(
+      `insert into opengeo.extractions (orthomosaic_id, model, prompt, qa_status)
+       values ($1, 'test-model', 'buildings', 'pending')
+       returning id`,
+      [orthoRows[0].id],
+    );
+
+    await impersonate(userInvited);
+    await client.query(
+      `select opengeo.set_extraction_qa($1::uuid, 'human_reviewed')`,
+      [extractionRows[0].id],
+    );
+    const { rows: updatedRows } = await client.query<{ qa_status: string }>(
+      `select qa_status from opengeo.extractions where id = $1`,
+      [extractionRows[0].id],
+    );
+    expect(updatedRows[0].qa_status).toBe("human_reviewed");
+
+    await client.query(
+      `update opengeo.extractions set qa_status = 'pending' where id = $1`,
+      [extractionRows[0].id],
+    );
+    await impersonate(userProjectViewer);
+    await expectSqlRejection(
+      () =>
+        client.query(
+          `select opengeo.set_extraction_qa($1::uuid, 'human_reviewed')`,
+          [extractionRows[0].id],
+        ),
+      /Not authorized/,
+    );
   });
 });

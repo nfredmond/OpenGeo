@@ -307,7 +307,7 @@ export default function ReviewPage() {
                         <span>
                           project ·{" "}
                           <Link
-                            href={`/map/${project.slug}`}
+                            href={`/map/${project.slug}?projectId=${project.id}`}
                             className="text-[color:var(--accent)] hover:underline"
                           >
                             {project.name}

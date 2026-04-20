@@ -24,18 +24,29 @@ const MintBody = z.object({
 
 type ProjectLookup = { id: string; slug: string };
 
+class AmbiguousProjectError extends Error {}
+
 async function resolveProject(
   supabase: Awaited<ReturnType<typeof supabaseServer>>,
   slug: string,
+  projectId?: string | null,
 ): Promise<ProjectLookup | null> {
-  const { data, error } = await supabase
-    .schema("opengeo")
-    .from("projects")
-    .select("id, slug")
-    .eq("slug", slug)
-    .maybeSingle();
+  let query = supabase.schema("opengeo").from("projects").select("id, slug");
+  if (projectId) {
+    query = query.eq("id", projectId).eq("slug", slug);
+    const { data, error } = await query.maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as ProjectLookup | null) ?? null;
+  }
+
+  const { data, error } = await query.eq("slug", slug).limit(2).returns<ProjectLookup[]>();
   if (error) throw new Error(error.message);
-  return (data as ProjectLookup | null) ?? null;
+  if ((data ?? []).length > 1) {
+    throw new AmbiguousProjectError(
+      "Project slug is ambiguous. Open the project from the Projects list.",
+    );
+  }
+  return (data ?? [])[0] ?? null;
 }
 
 async function requireAdmin(
@@ -83,7 +94,20 @@ export const POST = withRoute<{ slug: string }>(
       );
     }
 
-    const project = await resolveProject(supabase, parsedParams.data.slug);
+    const projectId = new URL(req.url).searchParams.get("projectId");
+    if (projectId && !z.string().uuid().safeParse(projectId).success) {
+      return NextResponse.json({ ok: false, error: "Invalid project id." }, { status: 400 });
+    }
+
+    let project: ProjectLookup | null;
+    try {
+      project = await resolveProject(supabase, parsedParams.data.slug, projectId);
+    } catch (e) {
+      if (e instanceof AmbiguousProjectError) {
+        return NextResponse.json({ ok: false, error: e.message }, { status: 409 });
+      }
+      throw e;
+    }
     if (!project) {
       return NextResponse.json({ ok: false, error: "Project not found." }, { status: 404 });
     }
@@ -146,7 +170,20 @@ export const GET = withRoute<{ slug: string }>(
       return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
     }
 
-    const project = await resolveProject(supabase, parsedParams.data.slug);
+    const projectId = new URL(_req.url).searchParams.get("projectId");
+    if (projectId && !z.string().uuid().safeParse(projectId).success) {
+      return NextResponse.json({ ok: false, error: "Invalid project id." }, { status: 400 });
+    }
+
+    let project: ProjectLookup | null;
+    try {
+      project = await resolveProject(supabase, parsedParams.data.slug, projectId);
+    } catch (e) {
+      if (e instanceof AmbiguousProjectError) {
+        return NextResponse.json({ ok: false, error: e.message }, { status: 409 });
+      }
+      throw e;
+    }
     if (!project) {
       return NextResponse.json({ ok: false, error: "Project not found." }, { status: 404 });
     }

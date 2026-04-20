@@ -75,8 +75,8 @@ export const POST = withRoute("flights.diff", async (req) => {
   // Pull feature collections via the existing RPC. `layer_as_geojson` runs
   // under RLS too, so a layer the caller can't read returns an empty FC.
   const [fromFcRes, toFcRes] = await Promise.all([
-    supabase.rpc("layer_as_geojson", { p_layer_id: fromLayerId }),
-    supabase.rpc("layer_as_geojson", { p_layer_id: toLayerId }),
+    supabase.schema("opengeo").rpc("layer_as_geojson", { p_layer_id: fromLayerId }),
+    supabase.schema("opengeo").rpc("layer_as_geojson", { p_layer_id: toLayerId }),
   ]);
   if (fromFcRes.error || toFcRes.error) {
     return NextResponse.json(
@@ -125,11 +125,13 @@ export const POST = withRoute("flights.diff", async (req) => {
 
   const layerName =
     outputName ?? `Δ ${fromLayer.name} → ${toLayer.name}`.slice(0, 120);
-  const { data: layerId, error: ingestErr } = await supabase.rpc("ingest_geojson", {
-    p_project_id: fromLayer.dataset.project_id,
-    p_name: layerName,
-    p_feature_collection: diff.featureCollection,
-  });
+  const { data: layerId, error: ingestErr } = await supabase
+    .schema("opengeo")
+    .rpc("ingest_geojson", {
+      p_project_id: fromLayer.dataset.project_id,
+      p_name: layerName,
+      p_feature_collection: diff.featureCollection,
+    });
   if (ingestErr) {
     const status = ingestErr.code === "42501" ? 403 : 400;
     return NextResponse.json({ ok: false, error: ingestErr.message }, { status });
@@ -167,9 +169,8 @@ export const POST = withRoute("flights.diff", async (req) => {
     narrative = out;
 
     // Persist the narrative on the diff layer itself so the public share view
-    // can render it. Uses the service client because layers UPDATE is gated
-    // on can_edit(org) and we already verified access by calling
-    // ingest_geojson above.
+    // can render it. Uses the service client because the diff layer has
+    // already been created by the authorized ingest_geojson call above.
     await supabaseService()
       .schema("opengeo")
       .from("layers")

@@ -21,12 +21,16 @@ export type ClientLayer =
       name: string;
       color: string;
       visible: boolean;
-      source: "remote";
+      source: "remote" | "pmtiles";
       kind: "vector-tile";
-      tilesUrlTemplate: string;
+      tilesUrlTemplate?: string;
+      sourceUrl?: string;
       sourceLayer: string;
       geometryKind: string;
       featureCount: number;
+      bbox?: [number, number, number, number] | null;
+      minzoom?: number;
+      maxzoom?: number;
       style?: LayerStylePatch | null;
     }
   | {

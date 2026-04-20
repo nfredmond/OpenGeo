@@ -6,9 +6,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Lists layers visible to the current user. RLS on opengeo.layers ensures the
-// list is filtered to orgs the user belongs to — we do not re-check membership
-// here. Optional ?projectSlug= or ?projectId= narrows the list to a single
-// project (still RLS-filtered).
+// list is filtered to projects the user can read. Optional ?projectSlug= or
+// ?projectId= narrows the list to a single project (still RLS-filtered).
 export const GET = withRoute("layers.list", async (req) => {
   const supabase = await supabaseServer();
   const { data: userData } = await supabase.auth.getUser();
@@ -30,15 +29,19 @@ export const GET = withRoute("layers.list", async (req) => {
       geometry_kind,
       feature_count,
       style,
+      metadata,
       updated_at,
       dataset:datasets!inner (
         id,
         name,
+        kind,
+        source_uri,
+        metadata,
         project:projects!inner (
           id,
           slug,
           name,
-          org:orgs!inner (
+          org:orgs (
             id,
             name,
             slug

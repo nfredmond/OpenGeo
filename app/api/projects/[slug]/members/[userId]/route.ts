@@ -16,9 +16,11 @@ const ParamsSchema = z.object({
   userId: z.string().uuid(),
 });
 
+type ProjectLookup = { id: string; slug: string; org_id: string };
+
 export const DELETE = withRoute<{ slug: string; userId: string }>(
   "projects.members.remove",
-  async (_req, ctx) => {
+  async (req, ctx) => {
     const rawParams = await ctx.params;
     const parsed = ParamsSchema.safeParse(rawParams);
     if (!parsed.success) {
@@ -31,14 +33,39 @@ export const DELETE = withRoute<{ slug: string; userId: string }>(
       return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
     }
 
-    // Resolve project by slug (RLS-scoped; 404 if caller has no access).
-    const { data: project, error: pErr } = await supabase
+    const projectId = new URL(req.url).searchParams.get("projectId");
+    if (projectId && !z.string().uuid().safeParse(projectId).success) {
+      return NextResponse.json({ ok: false, error: "Invalid project id." }, { status: 400 });
+    }
+
+    // Resolve project by id+slug when possible. Slug-only links are still
+    // supported, but duplicate visible slugs must be disambiguated by projectId.
+    const projectQuery = supabase
       .schema("opengeo")
       .from("projects")
-      .select("id, slug, org_id")
-      .eq("slug", parsed.data.slug)
-      .maybeSingle();
-    if (pErr) return NextResponse.json({ ok: false, error: pErr.message }, { status: 500 });
+      .select("id, slug, org_id");
+    let project: ProjectLookup | null = null;
+    if (projectId) {
+      const { data, error: pErr } = await projectQuery
+        .eq("id", projectId)
+        .eq("slug", parsed.data.slug)
+        .maybeSingle<ProjectLookup>();
+      if (pErr) return NextResponse.json({ ok: false, error: pErr.message }, { status: 500 });
+      project = data ?? null;
+    } else {
+      const { data, error: pErr } = await projectQuery
+        .eq("slug", parsed.data.slug)
+        .limit(2)
+        .returns<ProjectLookup[]>();
+      if (pErr) return NextResponse.json({ ok: false, error: pErr.message }, { status: 500 });
+      if ((data ?? []).length > 1) {
+        return NextResponse.json(
+          { ok: false, error: "Project slug is ambiguous. Open the project from the Projects list." },
+          { status: 409 },
+        );
+      }
+      project = (data ?? [])[0] ?? null;
+    }
     if (!project) return NextResponse.json({ ok: false, error: "Project not found." }, { status: 404 });
 
     const { data: canAdmin, error: aErr } = await supabase
