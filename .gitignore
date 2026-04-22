@@ -95,3 +95,13 @@ checkpoints/
 .turbo/
 .sst/
 .vercel
+
+# --- MCP client session artifacts ---
+# `.mcp.json` documents MCP servers available to local AI clients (Claude Code,
+# Codex) against this project. Keep it untracked by default so each developer
+# can point at their own MCP endpoints without leaking tokens; check it in
+# explicitly if the team agrees on shared MCP config.
+.mcp.json
+# `.playwright-mcp/` holds page snapshots + console logs from Playwright-MCP
+# browser sessions — ephemeral artifacts, never source.
+.playwright-mcp/
