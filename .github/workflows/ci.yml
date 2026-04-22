@@ -33,3 +33,51 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # End-to-end check on the geo doctor CLI plumbing. The unit tests in
+      # tests/unit/env-doctor.test.ts cover runEnvDoctor() directly; this step
+      # additionally exercises `pnpm geo doctor` as a subprocess — catches
+      # regressions in the CLI argv parsing, exit codes, and JSON output
+      # shape that unit tests can't see.
+      - name: Env doctor — happy path (preview, core scope)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: anon-fixture
+          SUPABASE_SERVICE_ROLE_KEY: service-fixture
+          SUPABASE_DB_URL: postgresql://postgres:x@example.supabase.co:5432/postgres
+          OPENGEO_EXTRACTOR: mock
+          FEATURE_AI_NL_SQL: "false"
+          FEATURE_AI_STYLE_GEN: "false"
+          FEATURE_AI_FEATURE_EXTRACTION: "false"
+          FEATURE_DRONE_PIPELINE: "false"
+          FEATURE_DURABLE_PIPELINE: "false"
+        run: |
+          report=$(pnpm -s geo doctor --target=preview --scope=core --json)
+          echo "$report"
+          ok=$(echo "$report" | jq -r '.ok')
+          if [ "$ok" != "true" ]; then
+            echo "expected ok=true, got $ok"
+            exit 1
+          fi
+
+      - name: Env doctor — negative path fails when a required key is missing
+        env:
+          # Deliberately omit NEXT_PUBLIC_SUPABASE_URL to prove the gate fails closed.
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: anon-fixture
+          SUPABASE_SERVICE_ROLE_KEY: service-fixture
+          OPENGEO_EXTRACTOR: mock
+          FEATURE_AI_NL_SQL: "false"
+          FEATURE_AI_STYLE_GEN: "false"
+          FEATURE_AI_FEATURE_EXTRACTION: "false"
+          FEATURE_DRONE_PIPELINE: "false"
+          FEATURE_DURABLE_PIPELINE: "false"
+        run: |
+          set +e
+          pnpm -s geo doctor --target=preview --scope=core --json > /dev/null
+          code=$?
+          set -e
+          if [ "$code" = "0" ]; then
+            echo "env doctor should have failed with a missing required key, but exited 0"
+            exit 1
+          fi
+          echo "env doctor correctly failed with exit code $code"
