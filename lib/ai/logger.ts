@@ -18,7 +18,11 @@ export type AiEvent = {
 export async function logAiEvent(event: AiEvent): Promise<void> {
   try {
     const client = supabaseService();
-    const { error } = await client.from("ai_events").insert({
+    // `ai_events` lives in the `opengeo` schema. Without `.schema("opengeo")`,
+    // PostgREST routes the insert to `public.ai_events` (the first schema in
+    // `db_schemas`) which doesn't exist — and the error is only `console.error`d,
+    // so /review's audit log silently stays empty.
+    const { error } = await client.schema("opengeo").from("ai_events").insert({
       org_id: event.orgId,
       actor: event.actorId,
       kind: event.kind,
