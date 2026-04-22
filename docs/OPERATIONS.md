@@ -284,6 +284,7 @@ Modal emits a URL. Set it as `OPENGEO_EXTRACTOR_URL` in Vercel, along with `OPEN
 - The direct Postgres connection string bypasses the Supabase connection pooler. Use it only for migrations and CLI — request-path queries should go through PgBouncer (`?pgbouncer=true&connection_limit=1` in the connection string).
 - Supabase project region (check in dashboard) determines where Martin should run. Martin on Fly.io should be co-located with the Supabase region to keep tile latency low.
 - Re-applying migrations against a live project is not idempotent unless every migration uses `CREATE ... IF NOT EXISTS`. Always test against a local container first.
+- **Schema-prefix every Supabase CRUD call.** `opengeo` tables (`ai_events`, `layers`, `datasets`, `projects`, `project_members`, `project_share_tokens`, etc.) are exposed via PostgREST's `db_schemas=public,graphql_public,opengeo` setting. A schema-less `supabase.from("table")` routes to `public` by default — on hosted Supabase that table doesn't exist and the write silently 404s. `logAiEvent` hit this exact bug pre-2026-04-22 (see commit `8aa2847` on `main`), which left `/review`'s audit log empty even though the app appeared to work. Regression guard in `tests/unit/ai-logger.test.ts` fails if any code path calls `.from()` on the service client without first selecting a schema. Always call `.schema("opengeo")` before `.from(...)` on an opengeo-schema table.
 
 ## If production is on fire
 
