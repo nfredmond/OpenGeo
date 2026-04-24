@@ -46,8 +46,18 @@ const ALLOWED_LAYOUT_KEYS: Record<GeometryKind, ReadonlyArray<string>> = {
   raster: ["visibility"],
 };
 
+const StylePrimitiveSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
+const StyleExpressionArgSchema = z.union([
+  StylePrimitiveSchema,
+  z.array(StylePrimitiveSchema),
+]);
 const STYLE_VALUE_SCHEMA = z
-  .unknown()
+  .union([StylePrimitiveSchema, z.array(StyleExpressionArgSchema)])
   .describe("A JSON-compatible MapLibre style value or expression.");
 
 const PaintSchema = z.object(
