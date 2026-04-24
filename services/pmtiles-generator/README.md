@@ -55,6 +55,33 @@ pnpm pmtiles:smoke
 The Next.js app still supports direct local generation with
 `TIPPECANOE_BIN=tippecanoe` when `PMTILES_GENERATOR_URL` is empty.
 
+## No-cost hosted bridge
+
+If Fly.io deployment is blocked, the repo can run the published GHCR image
+locally and expose it through a Cloudflare quick tunnel:
+
+```bash
+pnpm pmtiles:bridge start
+pnpm pmtiles:smoke
+```
+
+The bridge manager starts:
+
+- `opengeo-pmtiles-generator-local` on `127.0.0.1:8110`
+- `opengeo-pmtiles-tunnel` using `cloudflare/cloudflared:latest`
+
+It writes the active quick tunnel base URL to
+`~/.cache/opengeo/pmtiles/tunnel-url.txt`. To update Vercel after the quick
+tunnel URL changes:
+
+```bash
+pnpm pmtiles:bridge start --update-vercel
+vercel deploy --prod -y
+```
+
+This bridge depends on the local machine staying awake with Docker running.
+Use Fly.io or another always-on host for real production.
+
 ## Image Publishing
 
 GitHub Actions builds this image on pull requests and publishes it to GHCR on

@@ -22,6 +22,7 @@
     "test:e2e": "playwright test",
     "gauntlet": "dotenv -e .env.local -- tsx --conditions=react-server scripts/phase1-gauntlet.ts",
     "pmtiles:smoke": "dotenv -e .env.local -- node scripts/pmtiles-generator-smoke.mjs",
+    "pmtiles:bridge": "node scripts/pmtiles-local-bridge.mjs",
     "geo": "tsx cli/src/index.ts"
   },
   "dependencies": {

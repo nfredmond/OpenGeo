@@ -253,6 +253,44 @@ curl -fsS https://opengeo-pmtiles-generator-natford.fly.dev/health
 `8110`, and defaults to Fly region `sjc`. Change `primary_region` before
 deployment if the hosted Supabase project is in a better-matched region.
 
+### No-cost PMTiles bridge
+
+When Fly.io is blocked by billing, production can temporarily use a local
+Docker generator exposed through a Cloudflare quick tunnel. This is suitable
+for demos and smoke tests, not durable production hosting.
+
+```bash
+pnpm pmtiles:bridge start
+pnpm pmtiles:smoke
+pnpm pmtiles:bridge status
+```
+
+`start` creates two Docker containers with `restart=unless-stopped`:
+
+- `opengeo-pmtiles-generator-local` on `127.0.0.1:8110`
+- `opengeo-pmtiles-tunnel` using `cloudflare/cloudflared:latest`
+
+The current tunnel base URL is written to:
+
+```text
+~/.cache/opengeo/pmtiles/tunnel-url.txt
+```
+
+If the quick tunnel URL changes, update Vercel and redeploy:
+
+```bash
+pnpm pmtiles:bridge start --update-vercel
+vercel deploy --prod -y
+```
+
+The bridge script reads `PMTILES_GENERATOR_TOKEN` from `.env.local` and writes
+only to `~/.cache/opengeo/pmtiles/generator.env` with mode `0600`. It does not
+print token values. Stop the demo bridge with:
+
+```bash
+pnpm pmtiles:bridge stop
+```
+
 Cloudflare R2 must be configured before hosted publishing can pass readiness:
 
 - Bucket: `opengeo-assets`
