@@ -191,6 +191,25 @@ export function splitSetCookieHeader(header: string): string[] {
   return header.split(COOKIE_SPLIT_RE).map((v) => v.trim()).filter(Boolean);
 }
 
+export function pmtilesPublicFetchProof({
+  url,
+  status,
+  header,
+}: {
+  url: string;
+  status: number;
+  header: Uint8Array;
+}): string {
+  if (![200, 206].includes(status)) {
+    throw new Error(`Public PMTiles fetch failed with HTTP ${status}.`);
+  }
+  const magic = new TextDecoder().decode(header.slice(0, 7));
+  if (magic !== "PMTiles") {
+    throw new Error(`Public PMTiles fetch returned unexpected magic header: ${JSON.stringify(magic)}.`);
+  }
+  return `public=${new URL(url).host} range=${status} magic=${magic}`;
+}
+
 export class CookieJar {
   private readonly cookies = new Map<string, string>();
 
@@ -474,12 +493,13 @@ export async function runHostedSmoke(
       const range = await deps.fetch(body.pmtiles.url, {
         headers: { range: "bytes=0-15" },
       });
-      if (![200, 206].includes(range.status)) {
-        throw new Error(`Public PMTiles fetch failed with HTTP ${range.status}.`);
-      }
       const header = new Uint8Array(await range.arrayBuffer());
-      if (header.byteLength === 0) throw new Error("Public PMTiles fetch returned zero bytes.");
-      return `${body.pmtiles.bytes ?? 0} bytes`;
+      const proof = pmtilesPublicFetchProof({
+        url: body.pmtiles.url,
+        status: range.status,
+        header,
+      });
+      return `${body.pmtiles.bytes ?? 0} bytes; ${proof}`;
     });
 
     await step("ai-query", async () => {

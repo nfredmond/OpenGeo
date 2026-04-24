@@ -98,7 +98,10 @@ The hosted smoke creates a temporary Supabase auth user/project, uploads small
 GeoJSON and shapefile fixtures, publishes PMTiles, exercises AI query/style,
 public share revoke, and flight diff, then cleans up the temporary Supabase,
 auth, and R2 objects. It reads secrets from `.env.local` but only prints step
-status, timings, and non-secret identifiers.
+status, timings, and non-secret identifiers. The PMTiles step reports a
+`public=<host> range=<status> magic=PMTiles` proof after range-reading the
+published archive URL; absence of that proof means the public publishing path
+did not complete even if the local bridge health checks passed.
 
 CI also has a push-to-`main` Vercel env inventory gate. Because Vercel does not
 return encrypted/sensitive values through `env pull`, the gate checks required

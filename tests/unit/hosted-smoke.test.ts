@@ -4,6 +4,7 @@ import {
   CookieJar,
   hostedSmokeExitCode,
   parseHostedSmokeArgs,
+  pmtilesPublicFetchProof,
   redactSensitive,
   splitSetCookieHeader,
   type SupabaseAdminLike,
@@ -66,6 +67,30 @@ describe("hosted-smoke helpers", () => {
 
     expect(jar.size).toBe(2);
     expect(jar.header()).toBe("sb-access-token=aaa; sb-refresh-token=bbb");
+  });
+
+  it("reports a secret-safe public PMTiles range proof", () => {
+    const header = new TextEncoder().encode("PMTiles fixture bytes");
+
+    expect(
+      pmtilesPublicFetchProof({
+        url: "https://assets.example.com/pmtiles/layer/smoke.pmtiles?unused=1",
+        status: 206,
+        header,
+      }),
+    ).toBe("public=assets.example.com range=206 magic=PMTiles");
+  });
+
+  it("rejects public PMTiles responses without the PMTiles magic header", () => {
+    const header = new TextEncoder().encode("not-pmtiles");
+
+    expect(() =>
+      pmtilesPublicFetchProof({
+        url: "https://assets.example.com/pmtiles/layer/smoke.pmtiles",
+        status: 200,
+        header,
+      }),
+    ).toThrow(/unexpected magic header/);
   });
 
   it("cleans temporary resources in the expected order", async () => {
