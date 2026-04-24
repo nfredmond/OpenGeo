@@ -296,9 +296,15 @@ The current tunnel base URL is written to:
 If the quick tunnel URL changes, update Vercel and redeploy:
 
 ```bash
-pnpm pmtiles:bridge start --update-vercel
+pnpm pmtiles:bridge repair --update-vercel
 vercel deploy --prod -y
 ```
+
+`status` checks both the local generator `/health` and the public quick tunnel
+`/health`; a running Docker container alone is not enough. `start` and
+`repair` recreate the tunnel container automatically when the logged
+trycloudflare hostname is stale or no longer resolves. Add `--force-recreate`
+to replace the tunnel even if the current public health check passes.
 
 The bridge script reads `PMTILES_GENERATOR_TOKEN` from `.env.local` and writes
 only to `~/.cache/opengeo/pmtiles/generator.env` with mode `0600`. It does not

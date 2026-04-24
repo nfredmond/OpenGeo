@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
-const generatorUrl = process.env.PMTILES_GENERATOR_URL || "http://localhost:8110/generate";
-const healthUrl = process.env.PMTILES_GENERATOR_HEALTH_URL || defaultHealthUrl(generatorUrl);
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 const token = process.env.PMTILES_GENERATOR_TOKEN || "";
+const candidates = generatorCandidates();
 
 const fixture = {
   featureCollection: {
@@ -22,8 +25,25 @@ const fixture = {
 };
 
 try {
-  await checkHealth();
-  const archive = await generateArchive();
+  const failures = [];
+  for (const candidate of candidates) {
+    try {
+      const archive = await runSmoke(candidate);
+      console.log(`PMTiles generator smoke passed: ${archive.byteLength} bytes from ${candidate.generatorUrl}`);
+      process.exit(0);
+    } catch (error) {
+      failures.push(`${candidate.generatorUrl}: ${errorMessage(error)}`);
+    }
+  }
+  throw new Error(failures.join("; "));
+} catch (error) {
+  console.error(`PMTiles generator smoke failed: ${errorMessage(error)}`);
+  process.exit(1);
+}
+
+async function runSmoke(candidate) {
+  await checkHealth(candidate.healthUrl);
+  const archive = await generateArchive(candidate.generatorUrl);
   const magic = new TextDecoder().decode(archive.slice(0, 7));
   if (magic !== "PMTiles") {
     throw new Error(`Unexpected PMTiles magic header: ${JSON.stringify(magic)}.`);
@@ -31,13 +51,10 @@ try {
   if (archive.byteLength < 128) {
     throw new Error(`PMTiles archive is unexpectedly small: ${archive.byteLength} bytes.`);
   }
-  console.log(`PMTiles generator smoke passed: ${archive.byteLength} bytes from ${generatorUrl}`);
-} catch (error) {
-  console.error(`PMTiles generator smoke failed: ${errorMessage(error)}`);
-  process.exit(1);
+  return archive;
 }
 
-async function checkHealth() {
+async function checkHealth(healthUrl) {
   const res = await fetch(healthUrl, { headers: authHeaders() });
   if (!res.ok) {
     throw new Error(`Health check failed: ${res.status} ${await res.text()}`);
@@ -48,7 +65,7 @@ async function checkHealth() {
   }
 }
 
-async function generateArchive() {
+async function generateArchive(generatorUrl) {
   const res = await fetch(generatorUrl, {
     method: "POST",
     headers: {
@@ -70,6 +87,38 @@ async function generateArchive() {
 
 function authHeaders() {
   return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+function generatorCandidates() {
+  const urls = [
+    process.env.PMTILES_GENERATOR_URL,
+    bridgeGeneratorUrl(),
+    "http://localhost:8110/generate",
+  ].filter(Boolean);
+  const unique = [...new Set(urls)];
+  return unique.map((generatorUrl, index) => ({
+    generatorUrl,
+    healthUrl:
+      index === 0 && process.env.PMTILES_GENERATOR_HEALTH_URL
+        ? process.env.PMTILES_GENERATOR_HEALTH_URL
+        : defaultHealthUrl(generatorUrl),
+  }));
+}
+
+function bridgeGeneratorUrl() {
+  const path = join(homedir(), ".cache", "opengeo", "pmtiles", "tunnel-url.txt");
+  if (!existsSync(path)) return null;
+  const baseUrl = readFileSync(path, "utf8").trim();
+  if (!baseUrl) return null;
+  try {
+    const url = new URL(baseUrl);
+    url.pathname = "/generate";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 function defaultHealthUrl(rawGenerateUrl) {

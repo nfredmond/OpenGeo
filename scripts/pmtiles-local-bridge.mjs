@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const CACHE_DIR = join(homedir(), ".cache", "opengeo", "pmtiles");
 const GENERATOR_CONTAINER = "opengeo-pmtiles-generator-local";
@@ -18,29 +19,36 @@ const LOCAL_GENERATOR_URL = `http://127.0.0.1:${LOCAL_PORT}`;
 const ENV_FILE = join(CACHE_DIR, "generator.env");
 const TUNNEL_URL_FILE = join(CACHE_DIR, "tunnel-url.txt");
 
-const args = process.argv.slice(2);
-const command = args.find((arg) => !arg.startsWith("--")) ?? "start";
-const options = new Set(args.filter((arg) => arg.startsWith("--")));
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  const parsed = parseBridgeArgs(process.argv.slice(2));
 
-if (options.has("--help") || command === "help") {
-  printHelp();
-  process.exit(0);
+  if (parsed.options.has("--help") || parsed.command === "help") {
+    printHelp();
+    process.exit(0);
+  }
+
+  if (!["start", "status", "stop", "repair"].includes(parsed.command)) {
+    console.error(`Unknown command: ${parsed.command}`);
+    printHelp();
+    process.exit(1);
+  }
+
+  try {
+    await main(parsed);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }
 
-if (!["start", "status", "stop"].includes(command)) {
-  console.error(`Unknown command: ${command}`);
-  printHelp();
-  process.exit(1);
+export function parseBridgeArgs(args) {
+  return {
+    command: args.find((arg) => !arg.startsWith("--")) ?? "start",
+    options: new Set(args.filter((arg) => arg.startsWith("--"))),
+  };
 }
 
-try {
-  await main();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-}
-
-async function main() {
+async function main({ command, options }) {
   mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
   await requireDocker();
 
@@ -49,11 +57,14 @@ async function main() {
     return;
   }
 
-  if (command === "start") {
+  if (command === "start" || command === "repair") {
     writeGeneratorEnv();
     await ensureGenerator();
     await waitForHealth(`${LOCAL_GENERATOR_URL}/health`);
     await ensureTunnel();
+    await ensurePublicTunnelHealthy({
+      forceRecreate: options.has("--force-recreate"),
+    });
   }
 
   const tunnelUrl = await currentTunnelUrl();
@@ -64,14 +75,21 @@ async function main() {
 
   const generator = await containerState(GENERATOR_CONTAINER);
   const tunnel = await containerState(TUNNEL_CONTAINER);
+  const localHealth = generator.running
+    ? await checkHealth(`${LOCAL_GENERATOR_URL}/health`)
+    : unhealthy(`${LOCAL_GENERATOR_URL}/health`, "container is not running");
+  const publicHealth = tunnel.running && tunnelUrl
+    ? await checkHealth(`${tunnelUrl}/health`)
+    : unhealthy(tunnelUrl ? `${tunnelUrl}/health` : null, "tunnel URL is unavailable");
   console.log(
     JSON.stringify(
       {
-        ok: Boolean(generator.running && tunnel.running && tunnelUrl),
+        ok: Boolean(generator.running && tunnel.running && tunnelUrl && localHealth.ok && publicHealth.ok),
         generator: {
           container: GENERATOR_CONTAINER,
           running: generator.running,
           localUrl: `${LOCAL_GENERATOR_URL}/generate`,
+          health: localHealth,
           image: GENERATOR_IMAGE,
         },
         tunnel: {
@@ -79,6 +97,7 @@ async function main() {
           running: tunnel.running,
           url: tunnelUrl,
           generatorUrl,
+          health: publicHealth,
           urlFile: TUNNEL_URL_FILE,
         },
       },
@@ -87,7 +106,7 @@ async function main() {
     ),
   );
 
-  if (command === "start" && generatorUrl && options.has("--update-vercel")) {
+  if ((command === "start" || command === "repair") && generatorUrl && options.has("--update-vercel")) {
     await updateVercelEnv(generatorUrl);
   }
 }
@@ -158,6 +177,51 @@ async function ensureTunnel() {
   await waitForTunnelUrl();
 }
 
+async function ensurePublicTunnelHealthy({ forceRecreate = false } = {}) {
+  let tunnelUrl = await waitForTunnelUrl();
+  if (!forceRecreate && await waitForHealthyUrl(`${tunnelUrl}/health`, 15_000)) {
+    return;
+  }
+
+  await recreateTunnel(forceRecreate ? "forced by --force-recreate" : "public tunnel health check failed");
+  tunnelUrl = await waitForTunnelUrl();
+  if (await waitForHealthyUrl(`${tunnelUrl}/health`, 60_000)) {
+    return;
+  }
+
+  const health = await checkHealth(`${tunnelUrl}/health`);
+  throw new Error(
+    `Cloudflare quick tunnel is not publicly healthy at ${tunnelUrl}/health: ${health.error ?? `HTTP ${health.status}`}`,
+  );
+}
+
+async function recreateTunnel(reason) {
+  if (await containerExists(TUNNEL_CONTAINER)) {
+    await run("docker", ["rm", "-f", TUNNEL_CONTAINER], { quiet: true, allowFailure: true });
+  }
+  await run("docker", [
+    "run",
+    "-d",
+    "--name",
+    TUNNEL_CONTAINER,
+    "--restart",
+    "unless-stopped",
+    "--network",
+    "host",
+    CLOUDFLARED_IMAGE,
+    "tunnel",
+    "--url",
+    `${LOCAL_GENERATOR_URL}`,
+    "--protocol",
+    "http2",
+    "--no-autoupdate",
+  ], { quiet: true });
+  await waitForTunnelUrl();
+  if (process.env.OPENGEO_BRIDGE_DEBUG === "1") {
+    console.error(`Recreated ${TUNNEL_CONTAINER}: ${reason}`);
+  }
+}
+
 async function stopBridge() {
   for (const name of [TUNNEL_CONTAINER, GENERATOR_CONTAINER]) {
     if (await containerExists(name)) {
@@ -171,16 +235,50 @@ async function waitForHealth(url) {
   const deadline = Date.now() + 30_000;
   let lastError = "";
   while (Date.now() < deadline) {
-    try {
-      const res = await fetch(url);
-      if (res.ok) return;
-      lastError = `HTTP ${res.status}`;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
+    const health = await checkHealth(url);
+    if (health.ok) return;
+    lastError = health.error ?? `HTTP ${health.status}`;
     await sleep(500);
   }
   throw new Error(`PMTiles generator did not become healthy at ${url}: ${lastError}`);
+}
+
+async function waitForHealthyUrl(url, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const health = await checkHealth(url);
+    if (health.ok) return true;
+    await sleep(1000);
+  }
+  return false;
+}
+
+async function checkHealth(url) {
+  if (!url) return unhealthy(null, "health URL is unavailable");
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const res = await fetch(url, {
+        headers: { accept: "application/json" },
+        signal: controller.signal,
+      });
+      return {
+        ok: res.ok,
+        url,
+        status: res.status,
+        error: res.ok ? null : `HTTP ${res.status}`,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (error) {
+    return unhealthy(url, error instanceof Error ? error.message : String(error));
+  }
+}
+
+function unhealthy(url, error) {
+  return { ok: false, url, status: null, error };
 }
 
 async function waitForTunnelUrl() {
@@ -204,13 +302,39 @@ async function currentTunnelUrl() {
 }
 
 async function updateVercelEnv(generatorUrl) {
+  if (await updateVercelEnvViaApi(generatorUrl)) {
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          updated: "PMTILES_GENERATOR_URL",
+          targets: ["preview", "production"],
+          value: generatorUrl,
+          method: "vercel-api",
+          next: "Run `vercel deploy --prod -y` for production to pick up the new env value.",
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
   for (const target of ["preview", "production"]) {
     await run("vercel", ["env", "rm", "PMTILES_GENERATOR_URL", target, "--yes"], {
       allowFailure: true,
       quiet: true,
     });
-    await run("vercel", ["env", "add", "PMTILES_GENERATOR_URL", target], {
-      input: `${generatorUrl}\n`,
+    await run("vercel", [
+      "env",
+      "add",
+      "PMTILES_GENERATOR_URL",
+      target,
+      "--value",
+      generatorUrl,
+      "--yes",
+      "--force",
+    ], {
       quiet: true,
     });
   }
@@ -227,6 +351,52 @@ async function updateVercelEnv(generatorUrl) {
       2,
     ),
   );
+}
+
+async function updateVercelEnvViaApi(generatorUrl) {
+  const token = process.env.VERCEL_TOKEN;
+  const project = readVercelProject();
+  if (!token || !project) return false;
+
+  for (const target of ["preview", "production"]) {
+    const res = await fetch(
+      `https://api.vercel.com/v10/projects/${project.projectId}/env?upsert=true&teamId=${project.orgId}`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "encrypted",
+          key: "PMTILES_GENERATOR_URL",
+          value: generatorUrl,
+          target: [target],
+        }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(
+        `Vercel API env update failed for ${target}: HTTP ${res.status} ${body.error?.message ?? body.message ?? ""}`.trim(),
+      );
+    }
+  }
+  return true;
+}
+
+function readVercelProject() {
+  const path = resolve(process.cwd(), ".vercel", "project.json");
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof parsed.projectId === "string" && typeof parsed.orgId === "string") {
+      return { projectId: parsed.projectId, orgId: parsed.orgId };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 async function containerExists(name) {
@@ -304,6 +474,7 @@ function sleep(ms) {
 function printHelp() {
   console.log(`Usage:
   node scripts/pmtiles-local-bridge.mjs start [--update-vercel]
+  node scripts/pmtiles-local-bridge.mjs repair [--update-vercel] [--force-recreate]
   node scripts/pmtiles-local-bridge.mjs status
   node scripts/pmtiles-local-bridge.mjs stop
 
@@ -314,6 +485,8 @@ Environment:
 
 Notes:
   start creates Docker containers with restart=unless-stopped.
+  start verifies the public quick tunnel /health and recreates stale tunnels.
+  repair runs the same verification path; --force-recreate always replaces the tunnel.
   --update-vercel replaces PMTILES_GENERATOR_URL in Preview and Production.
 `);
 }
