@@ -46,6 +46,17 @@ const ALLOWED_LAYOUT_KEYS: Record<GeometryKind, ReadonlyArray<string>> = {
   raster: ["visibility"],
 };
 
+const STYLE_VALUE_SCHEMA = z
+  .unknown()
+  .describe("A JSON-compatible MapLibre style value or expression.");
+
+const PaintSchema = z.object(
+  optionalStyleValueShape(unique(Object.values(ALLOWED_PAINT_KEYS).flat())),
+);
+const LayoutSchema = z.object(
+  optionalStyleValueShape(unique(Object.values(ALLOWED_LAYOUT_KEYS).flat())),
+);
+
 const NlStyleSchema = z.object({
   label: z
     .string()
@@ -53,8 +64,8 @@ const NlStyleSchema = z.object({
     .describe("A short human-readable name for this style change."),
   patch: z
     .object({
-      paint: z.record(z.string(), z.unknown()).optional(),
-      layout: z.record(z.string(), z.unknown()).optional(),
+      paint: PaintSchema.optional(),
+      layout: LayoutSchema.optional(),
     })
     .describe(
       "A MapLibre style patch. Omit paint/layout fields you do not need. Return { } to decline the request.",
@@ -72,6 +83,18 @@ export type NlStyleResult = {
   patch: LayerStylePatch;
   rationale: string;
 };
+
+function unique(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
+function optionalStyleValueShape(
+  keys: ReadonlyArray<string>,
+): Record<string, z.ZodOptional<typeof STYLE_VALUE_SCHEMA>> {
+  return Object.fromEntries(
+    keys.map((key) => [key, STYLE_VALUE_SCHEMA.optional()]),
+  );
+}
 
 function buildSystemPrompt(ctx: LayerContext): string {
   const paintKeys = ALLOWED_PAINT_KEYS[ctx.geometryKind].join(", ");
