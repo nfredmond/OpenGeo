@@ -6,3 +6,8 @@ services/
 # Dev planning / research docs — not needed in the build context.
 Dev planning documents/
 private/
+
+# Local secret handoff files.
+.env
+.env.*
+.r2-secrets.tmp

@@ -15,6 +15,7 @@ next-env.d.ts
 !.env.test
 *.key
 *.pem
+.r2-secrets.tmp
 
 # Plaintext credential / provisioning notes — never commit.
 private/
