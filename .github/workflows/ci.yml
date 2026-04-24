@@ -81,3 +81,73 @@ jobs:
             exit 1
           fi
           echo "env doctor correctly failed with exit code $code"
+
+  vercel-env-inventory:
+    name: Vercel env inventory
+    runs-on: ubuntu-latest
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Verify Vercel env keys
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          test -n "$VERCEL_TOKEN" || (echo "Missing GitHub secret VERCEL_TOKEN" && exit 1)
+          test -n "$VERCEL_ORG_ID" || (echo "Missing GitHub secret VERCEL_ORG_ID" && exit 1)
+          test -n "$VERCEL_PROJECT_ID" || (echo "Missing GitHub secret VERCEL_PROJECT_ID" && exit 1)
+          node <<'NODE'
+          const token = process.env.VERCEL_TOKEN;
+          const projectId = process.env.VERCEL_PROJECT_ID;
+          const orgId = process.env.VERCEL_ORG_ID;
+          const required = [
+            "NEXT_PUBLIC_SUPABASE_URL",
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "SUPABASE_DB_URL",
+            "OPENGEO_EXTRACTOR",
+            "FEATURE_AI_NL_SQL",
+            "FEATURE_AI_STYLE_GEN",
+            "FEATURE_AI_FEATURE_EXTRACTION",
+            "FEATURE_DRONE_PIPELINE",
+            "FEATURE_DURABLE_PIPELINE",
+            "R2_ACCOUNT_ID",
+            "R2_ACCESS_KEY_ID",
+            "R2_SECRET_ACCESS_KEY",
+            "R2_BUCKET",
+            "R2_PUBLIC_BASE_URL",
+            "PMTILES_GENERATOR_URL",
+            "PMTILES_GENERATOR_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_MODEL",
+          ];
+          const res = await fetch(
+            `https://api.vercel.com/v10/projects/${projectId}/env?teamId=${orgId}`,
+            { headers: { authorization: `Bearer ${token}` } },
+          );
+          if (!res.ok) {
+            console.error(`Vercel env API failed: HTTP ${res.status}`);
+            process.exit(1);
+          }
+          const body = await res.json();
+          const envs = Array.isArray(body.envs) ? body.envs : [];
+          const missing = [];
+          for (const target of ["production", "preview"]) {
+            for (const key of required) {
+              const found = envs.some((env) => {
+                const targets = Array.isArray(env.target) ? env.target : [env.target];
+                return env.key === key && targets.includes(target) && !env.gitBranch;
+              });
+              if (!found) missing.push(`${target}:${key}`);
+            }
+          }
+          const report = {
+            ok: missing.length === 0,
+            targets: ["production", "preview"],
+            requiredKeyCount: required.length,
+            missing,
+          };
+          console.log(JSON.stringify(report, null, 2));
+          if (missing.length > 0) process.exit(1);
+          NODE
