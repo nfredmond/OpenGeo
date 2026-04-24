@@ -88,6 +88,23 @@ pnpm geo doctor --target=preview --scope=core,pmtiles
 The doctor prints variable names only. It does not print secret values. Use
 `--json` when piping the result into another script.
 
+For a hosted production smoke after deploys or bridge recovery, run:
+
+```bash
+pnpm hosted:smoke -- --json
+```
+
+The hosted smoke creates a temporary Supabase auth user/project, uploads small
+GeoJSON and shapefile fixtures, publishes PMTiles, exercises AI query/style,
+public share revoke, and flight diff, then cleans up the temporary Supabase,
+auth, and R2 objects. It reads secrets from `.env.local` but only prints step
+status, timings, and non-secret identifiers.
+
+CI also has a push-to-`main` Vercel env inventory gate. Because Vercel does not
+return encrypted/sensitive values through `env pull`, the gate checks required
+Production and Preview key presence through the Vercel API without printing or
+duplicating provider secrets.
+
 ### Supabase Auth redirect URLs
 
 Every Vercel deploy URL that will host magic-link sign-in needs its `/auth/callback` whitelisted. Supabase → Authentication → URL Configuration → Redirect URLs:
