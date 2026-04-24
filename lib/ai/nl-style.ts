@@ -46,39 +46,16 @@ const ALLOWED_LAYOUT_KEYS: Record<GeometryKind, ReadonlyArray<string>> = {
   raster: ["visibility"],
 };
 
-const StylePrimitiveSchema = z.union([
-  z.string(),
-  z.number(),
-  z.boolean(),
-  z.null(),
-]);
-const StyleExpressionArgSchema = z.union([
-  StylePrimitiveSchema,
-  z.array(StylePrimitiveSchema),
-]);
-const STYLE_VALUE_SCHEMA = z
-  .union([StylePrimitiveSchema, z.array(StyleExpressionArgSchema)])
-  .describe("A JSON-compatible MapLibre style value or expression.");
-
-const PaintSchema = z.object(
-  optionalStyleValueShape(unique(Object.values(ALLOWED_PAINT_KEYS).flat())),
-);
-const LayoutSchema = z.object(
-  optionalStyleValueShape(unique(Object.values(ALLOWED_LAYOUT_KEYS).flat())),
-);
-
 const NlStyleSchema = z.object({
   label: z
     .string()
     .max(80)
     .describe("A short human-readable name for this style change."),
-  patch: z
-    .object({
-      paint: PaintSchema.optional(),
-      layout: LayoutSchema.optional(),
-    })
+  patchJson: z
+    .string()
+    .max(4000)
     .describe(
-      "A MapLibre style patch. Omit paint/layout fields you do not need. Return { } to decline the request.",
+      "A JSON-encoded MapLibre style patch object with optional paint/layout objects. Use \"{}\" to decline the request.",
     ),
   rationale: z
     .string()
@@ -93,18 +70,6 @@ export type NlStyleResult = {
   patch: LayerStylePatch;
   rationale: string;
 };
-
-function unique(values: string[]): string[] {
-  return Array.from(new Set(values));
-}
-
-function optionalStyleValueShape(
-  keys: ReadonlyArray<string>,
-): Record<string, z.ZodOptional<typeof STYLE_VALUE_SCHEMA>> {
-  return Object.fromEntries(
-    keys.map((key) => [key, STYLE_VALUE_SCHEMA.optional()]),
-  );
-}
 
 function buildSystemPrompt(ctx: LayerContext): string {
   const paintKeys = ALLOWED_PAINT_KEYS[ctx.geometryKind].join(", ");
@@ -124,9 +89,10 @@ function buildSystemPrompt(ctx: LayerContext): string {
   return `You translate natural-language style requests into a MapLibre GL style patch for a single map layer.
 
 Output contract:
-- Return a JSON object { label, patch, rationale } matching the schema.
-- "patch" has optional "paint" and "layout" objects. Omit what you do not need.
-- If the request is unsupported, return patch: {} and explain in rationale. Never throw. Never fabricate keys.
+- Return a JSON object { label, patchJson, rationale } matching the schema.
+- "patchJson" is a JSON string that parses to an object with optional "paint" and "layout" objects.
+- Omit what you do not need inside patchJson.
+- If the request is unsupported, return patchJson: "{}" and explain in rationale. Never throw. Never fabricate keys.
 
 Target layer:
 - Geometry kind: ${ctx.geometryKind}
@@ -168,6 +134,29 @@ function filterAllowedKeys(
   return Object.keys(filtered).length > 0 ? filtered : undefined;
 }
 
+function parsePatchJson(raw: string): LayerStylePatch {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
+  const patch = parsed as { paint?: unknown; layout?: unknown };
+  return {
+    paint:
+      patch.paint && typeof patch.paint === "object" && !Array.isArray(patch.paint)
+        ? (patch.paint as Record<string, unknown>)
+        : undefined,
+    layout:
+      patch.layout && typeof patch.layout === "object" && !Array.isArray(patch.layout)
+        ? (patch.layout as Record<string, unknown>)
+        : undefined,
+  };
+}
+
 export async function nlToStyle(
   layerContext: LayerContext,
   prompt: string,
@@ -177,16 +166,17 @@ export async function nlToStyle(
     model,
     output: Output.object({ schema: NlStyleSchema }),
     system: buildSystemPrompt(layerContext),
-    prompt: `User request: ${prompt}\n\nReturn a JSON object matching the provided schema. If the request is not supported by the allowed keys or the layer's available properties, return patch: {} and explain why.`,
+    prompt: `User request: ${prompt}\n\nReturn a JSON object matching the provided schema. patchJson must be valid JSON. If the request is not supported by the allowed keys or the layer's available properties, return patchJson: "{}" and explain why.`,
     temperature: 0,
   });
+  const rawPatch = parsePatchJson(output.patchJson);
 
   const paint = filterAllowedKeys(
-    output.patch.paint,
+    rawPatch.paint,
     ALLOWED_PAINT_KEYS[layerContext.geometryKind],
   );
   const layout = filterAllowedKeys(
-    output.patch.layout,
+    rawPatch.layout,
     ALLOWED_LAYOUT_KEYS[layerContext.geometryKind],
   );
 

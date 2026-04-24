@@ -43,14 +43,14 @@ describe("nlToStyle", () => {
     generateTextMock.mockResolvedValueOnce({
       output: {
         label: "Dark red polygons",
-        patch: {
+        patchJson: JSON.stringify({
           paint: {
             "fill-color": "#8b0000",
             "fill-opacity": 0.6,
             // Disallowed for polygon — the filter should drop it.
             "circle-radius": 5,
           },
-        },
+        }),
         rationale: "Dark red fill at 60% opacity.",
       },
     });
@@ -72,7 +72,7 @@ describe("nlToStyle", () => {
     generateTextMock.mockResolvedValueOnce({
       output: {
         label: "Color by area",
-        patch: {
+        patchJson: JSON.stringify({
           paint: {
             "fill-color": [
               "interpolate",
@@ -84,7 +84,7 @@ describe("nlToStyle", () => {
               "#003",
             ],
           },
-        },
+        }),
         rationale: "Interpolated gradient on area_sqm.",
       },
     });
@@ -106,7 +106,7 @@ describe("nlToStyle", () => {
     generateTextMock.mockResolvedValueOnce({
       output: {
         label: "Declined",
-        patch: {},
+        patchJson: "{}",
         rationale:
           "Declined — 'make it explode' is not a supported style change.",
       },
@@ -121,14 +121,14 @@ describe("nlToStyle", () => {
     generateTextMock.mockResolvedValueOnce({
       output: {
         label: "Point style",
-        patch: {
+        patchJson: JSON.stringify({
           paint: { "circle-color": "#ff0000", "circle-radius": 8 },
           layout: {
             visibility: "visible",
             // Disallowed for point:
             "line-cap": "round",
           },
-        },
+        }),
         rationale: "Red dots.",
       },
     });
@@ -145,7 +145,7 @@ describe("nlToStyle", () => {
     generateTextMock.mockResolvedValueOnce({
       output: {
         label: "noop",
-        patch: { paint: { "fill-color": "#fff" } },
+        patchJson: JSON.stringify({ paint: { "fill-color": "#fff" } }),
         rationale: "ok",
       },
     });
@@ -166,7 +166,7 @@ describe("nlToStyle", () => {
     generateTextMock.mockResolvedValueOnce({
       output: {
         label: "noop",
-        patch: { paint: { "circle-color": "#fff" } },
+        patchJson: JSON.stringify({ paint: { "circle-color": "#fff" } }),
         rationale: "ok",
       },
     });
