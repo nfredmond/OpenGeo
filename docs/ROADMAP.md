@@ -37,11 +37,12 @@ Derived from the phased plan in `Dev planning documents/research.md`. Dates are 
 - [x] Public share links — per-project, hashed-at-rest tokens with expiry + revocation. *(`20260417120200_share_tokens.sql`, `/api/share/[token]/*`, `/p/[token]`.)* API keys + preview URLs per project still deferred — scope narrowed to what a client share actually needs.
 - [x] Change detection between drone flights — **feature-level (vector-on-vector)**. *(`lib/change-detection/feature-diff.ts`, `POST /api/flights/diff`, Compare-layers panel with AI narration persisted on `layers.metadata`.)* Pixel-level raster diff deferred to Phase 2.5 (needs GDAL/Python services/\* deployment).
 - [ ] `geo` CLI: init/dev/deploy/layers/query/style, Docker-backed local dev, git-friendly map definitions. *(`geo doctor` now wraps deploy readiness checks; map-definition workflows remain.)*
+- [x] Public PMTiles dashboard MVP: one project PMTiles map layer plus one feature-count metric through the existing public share path. *(`20260425120000_project_dashboards.sql`, `/api/projects/[slug]/dashboard`, `/api/share/[token]/dashboard`, `/p/[token]`.)* Full dashboard builder with chart widgets and cross-filtering remains deferred.
 - [ ] Dashboard builder: map + chart widgets with cross-filtering (Vega-Lite).
 - [ ] Semantic search over imagery tiles and dataset descriptions via pgvector + Clay embeddings.
 - [x] PMTiles hosting for static dataset publishing. *(`POST /api/pmtiles` registers hosted archives; `POST /api/pmtiles/publish` exports PostGIS layers through Tippecanoe, uploads to R2, and rehydrates via MapLibre `pmtiles://` sources. Vercel-safe generation can run through `services/pmtiles-generator`; Maputnik-style editing remains separate.)*
 
-**Exit criteria:** A consultant can onboard a client, share a project with three collaborators, publish a public PMTiles dashboard, and diff two flights of the same site. *(Onboard + share + vector diff shipped 2026-04-18; PMTiles publishing path now in place; dashboard builder remains.)*
+**Exit criteria:** A consultant can onboard a client, share a project with three collaborators, publish a public PMTiles dashboard, and diff two flights of the same site. *(Onboard + share + vector diff shipped 2026-04-18; PMTiles publishing path and the narrow public dashboard MVP are now in place; the full dashboard builder remains.)*
 
 ### Operational / security hardening (shipped in-stream)
 

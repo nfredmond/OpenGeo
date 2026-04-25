@@ -36,12 +36,25 @@ type ShareOrtho = {
   createdAt: string;
 };
 
+type ShareDashboard = {
+  id: string;
+  name: string;
+  layerId: string;
+  layerName: string;
+  metric: {
+    kind: "feature_count";
+    label: string;
+    value: number;
+  };
+};
+
 export function PublicMap({ token }: { token: string }) {
   const [project, setProject] = useState<ShareProjectResponse["project"] | null>(null);
   const [org, setOrg] = useState<ShareProjectResponse["org"]>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [layers, setLayers] = useState<ShareLayer[]>([]);
   const [orthomosaics, setOrthomosaics] = useState<ShareOrtho[]>([]);
+  const [dashboard, setDashboard] = useState<ShareDashboard | null>(null);
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
   const [basemap, setBasemap] = useState<BasemapId>(defaultBasemapId());
   const [loading, setLoading] = useState(true);
@@ -69,9 +82,10 @@ export function PublicMap({ token }: { token: string }) {
         setOrg(projBody.org ?? null);
         setExpiresAt(projBody.expiresAt ?? null);
 
-        const [layersRes, orthoRes] = await Promise.all([
+        const [layersRes, orthoRes, dashboardRes] = await Promise.all([
           fetch(`/api/share/${encodeURIComponent(token)}/layers`, { cache: "no-store" }),
           fetch(`/api/share/${encodeURIComponent(token)}/orthomosaics`, { cache: "no-store" }),
+          fetch(`/api/share/${encodeURIComponent(token)}/dashboard`, { cache: "no-store" }),
         ]);
         const layersBody = (await layersRes.json()) as {
           ok: boolean;
@@ -83,12 +97,18 @@ export function PublicMap({ token }: { token: string }) {
           orthomosaics?: ShareOrtho[];
           error?: string;
         };
+        const dashboardBody = (await dashboardRes.json()) as {
+          ok: boolean;
+          dashboard?: ShareDashboard | null;
+          error?: string;
+        };
 
         if (cancelled) return;
         const nextLayers = layersBody.layers ?? [];
         const nextOrthos = (orthoBody.orthomosaics ?? []).filter((o) => o.cogUrl);
         setLayers(nextLayers);
         setOrthomosaics(nextOrthos);
+        setDashboard(dashboardBody.dashboard ?? null);
         const vis: Record<string, boolean> = {};
         for (const l of nextLayers) vis[l.id] = true;
         for (const o of nextOrthos) vis[o.id] = true;
@@ -145,9 +165,9 @@ export function PublicMap({ token }: { token: string }) {
         maxzoom: 22,
       });
     }
-    // Fit to the first vector layer if any.
-    if (layers.length > 0) mapRef.current.fitLayer(layers[0].id);
-  }, [layers, orthomosaics]);
+    const fitLayerId = dashboard?.layerId ?? layers[0]?.id;
+    if (fitLayerId) mapRef.current.fitLayer(fitLayerId);
+  }, [dashboard?.layerId, layers, orthomosaics]);
 
   const toggle = useCallback((id: string) => {
     setVisibility((prev) => {
@@ -203,10 +223,11 @@ export function PublicMap({ token }: { token: string }) {
             <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700">
               Read-only share
             </span>
-            <span className="truncate font-semibold">{project.name}</span>
+            <span className="truncate font-semibold">{dashboard?.name ?? project.name}</span>
           </div>
           <p className="mt-0.5 truncate text-[10px] text-[color:var(--muted)]">
             {org?.name ? `${org.name} · ` : ""}
+            {dashboard ? `${project.name} · ` : ""}
             {expiryLabel}
           </p>
         </div>
@@ -215,6 +236,25 @@ export function PublicMap({ token }: { token: string }) {
 
       <div className="flex min-h-0 flex-1">
         <aside className="w-64 shrink-0 border-r border-[color:var(--border)] bg-[color:var(--card)] p-3 text-xs">
+          {dashboard && (
+            <section className="mb-4 border-b border-[color:var(--border)] pb-4">
+              <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[color:var(--muted)]">
+                Dashboard
+              </h2>
+              <p className="truncate text-sm font-semibold">{dashboard.name}</p>
+              <div className="mt-3">
+                <p className="text-[10px] uppercase tracking-wider text-[color:var(--muted)]">
+                  {dashboard.metric.label}
+                </p>
+                <p className="mt-1 text-2xl font-semibold tracking-tight">
+                  {formatCount(dashboard.metric.value)}
+                </p>
+                <p className="mt-1 truncate text-[11px] text-[color:var(--muted)]">
+                  {dashboard.layerName}
+                </p>
+              </div>
+            </section>
+          )}
           <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[color:var(--muted)]">
             Layers ({layers.length})
           </h2>
@@ -264,4 +304,8 @@ export function PublicMap({ token }: { token: string }) {
 function titilerTilesUrl(cogUrl: string): string {
   const base = publicEnv.NEXT_PUBLIC_TITILER_URL.replace(/\/$/, "");
   return `${base}/cog/tiles/{z}/{x}/{y}.png?url=${encodeURIComponent(cogUrl)}`;
+}
+
+function formatCount(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
 }

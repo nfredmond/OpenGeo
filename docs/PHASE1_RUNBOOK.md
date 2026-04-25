@@ -594,6 +594,43 @@ Registering a hosted archive only needs a public PMTiles URL.
 
 ---
 
+## P2.6 Publish a public PMTiles dashboard *(zero extra infrastructure)*
+
+The dashboard MVP is intentionally narrow: one PMTiles map layer and one
+feature-count metric on the existing `/p/<token>` public share page.
+
+**Prereqs:**
+
+- P2.2 has minted an active share link with `read:layers`.
+- P2.5 has registered or published at least one PMTiles layer in the project.
+
+**Do:**
+
+- Open `/projects/<slug>/share?projectId=<uuid>` as a project admin.
+- In **Public dashboard**, pick a PMTiles layer, set the title, leave
+  **Published** checked, and save.
+- Open the existing `/p/<token>` share URL.
+
+**Expect:**
+
+- The public page still renders the project map and PMTiles layer through the
+  existing share route.
+- The left rail shows a **Dashboard** block with the configured title and a
+  **Features** metric for the selected PMTiles layer.
+- Unchecking **Published** and saving hides only the dashboard block; the
+  ordinary shared map remains available while the share link is active.
+
+**If it fails:**
+
+- The dashboard panel has no layer choices → register or publish a PMTiles
+  layer first.
+- Save returns 403 → the signed-in user needs admin access to publish public
+  dashboard state.
+- `/p/<token>` has no dashboard block → confirm the dashboard is published and
+  the share link includes `read:layers`.
+
+---
+
 ## Phase 2 smoke-test one-liner
 
 Once P2.1–P2.4 pass by hand, the same happy path can be exercised by the

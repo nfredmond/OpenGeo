@@ -35,7 +35,7 @@ type TokenState = {
     feature_count: number;
     style: Record<string, unknown> | null;
     metadata?: Record<string, unknown> | null;
-    dataset?: { source_uri: string | null; kind: string | null } | null;
+    dataset?: { project_id?: string; source_uri: string | null; kind: string | null } | null;
     updated_at: string;
   }>;
   flights: Array<{ id: string; project_id: string }>;
@@ -46,6 +46,15 @@ type TokenState = {
     cog_url: string | null;
     created_at: string;
   }>;
+  dashboard: {
+    id: string;
+    project_id: string;
+    name: string;
+    layer_id: string;
+    metric_kind: "feature_count";
+    is_published: boolean;
+    updated_at: string;
+  } | null;
   shareTokenRow: { expires_at: string | null; scopes: string[] } | null;
   featureCollectionById: Record<string, GeoJSON.FeatureCollection>;
 };
@@ -76,6 +85,7 @@ const state: TokenState = {
       created_at: "2026-04-17T00:00:00Z",
     },
   ],
+  dashboard: null,
   shareTokenRow: {
     expires_at: null,
     scopes: ["read:layers", "read:orthomosaics"],
@@ -99,6 +109,7 @@ const state: TokenState = {
         updated_at: "2026-04-17T00:00:00Z",
       },
     ];
+    state.dashboard = null;
   }
 
 vi.mock("@/lib/supabase/service", () => ({
@@ -163,6 +174,16 @@ function buildFromMock(table: string) {
       if (table === "orgs") {
         return { data: state.org, error: null };
       }
+      if (table === "layers") {
+        const row = state.layers.find((layer) => matchesFilters(layer, chain._filters));
+        return { data: row ?? null, error: null };
+      }
+      if (table === "project_dashboards") {
+        const row = state.dashboard && matchesFilters(state.dashboard, chain._filters)
+          ? state.dashboard
+          : null;
+        return { data: row, error: null };
+      }
       if (table === "project_share_tokens") {
         return { data: state.shareTokenRow, error: null };
       }
@@ -195,9 +216,15 @@ function buildFromMock(table: string) {
   return chain;
 }
 
+function matchesFilters(row: object, filters: Array<{ col: string; val: unknown }>) {
+  const record = row as Record<string, unknown>;
+  return filters.every(({ col, val }) => record[col] === val);
+}
+
 const projectRouteMod = await import("@/app/api/share/[token]/project/route");
 const layersRouteMod = await import("@/app/api/share/[token]/layers/route");
 const orthoRouteMod = await import("@/app/api/share/[token]/orthomosaics/route");
+const dashboardRouteMod = await import("@/app/api/share/[token]/dashboard/route");
 
 describe("GET /api/share/[token]/*", () => {
   beforeEach(resetState);
@@ -341,6 +368,91 @@ describe("GET /api/share/[token]/*", () => {
     expect(body.layers[0].kind).toBe("pmtiles");
     expect(body.layers[0].pmtiles?.sourceLayer).toBe("parcels");
     expect(body.layers[0].featureCollection).toBeUndefined();
+  });
+
+  it("dashboard: 404 when the token lacks read:layers scope", async () => {
+    state.resolvedProject["limited-token.xx"] = {
+      projectId: "p1",
+      scopes: ["read:orthomosaics"],
+    };
+    const res = await dashboardRouteMod.GET(req("limited-token.xx"), ctx("limited-token.xx"));
+    expect(res.status).toBe(404);
+  });
+
+  it("dashboard: returns null when no dashboard is published", async () => {
+    state.resolvedProject["good-token.abcdefgh"] = {
+      projectId: "p1",
+      scopes: ["read:layers", "read:orthomosaics"],
+    };
+    const res = await dashboardRouteMod.GET(
+      req("good-token.abcdefgh"),
+      ctx("good-token.abcdefgh"),
+    );
+    const body = (await res.json()) as { ok: boolean; dashboard: null };
+    expect(res.status).toBe(200);
+    expect(body.dashboard).toBeNull();
+  });
+
+  it("dashboard: returns the published PMTiles feature-count metric", async () => {
+    state.resolvedProject["good-token.abcdefgh"] = {
+      projectId: "p1",
+      scopes: ["read:layers", "read:orthomosaics"],
+    };
+    state.layers = [
+      {
+        id: "l-pmtiles",
+        dataset_id: "d1",
+        name: "Hosted parcels",
+        geometry_kind: "polygon",
+        feature_count: 1000,
+        style: null,
+        metadata: {
+          pmtiles: {
+            url: "https://cdn.example.com/parcels.pmtiles",
+            sourceLayer: "parcels",
+            bbox: [-122, 38, -121, 39],
+            minzoom: 0,
+            maxzoom: 12,
+          },
+        },
+        dataset: {
+          project_id: "p1",
+          source_uri: "https://cdn.example.com/parcels.pmtiles",
+          kind: "pmtiles",
+        },
+        updated_at: "2026-04-17T00:00:00Z",
+      },
+    ];
+    state.dashboard = {
+      id: "dash1",
+      project_id: "p1",
+      name: "Parcel dashboard",
+      layer_id: "l-pmtiles",
+      metric_kind: "feature_count",
+      is_published: true,
+      updated_at: "2026-04-17T00:00:00Z",
+    };
+
+    const res = await dashboardRouteMod.GET(
+      req("good-token.abcdefgh"),
+      ctx("good-token.abcdefgh"),
+    );
+    const body = (await res.json()) as {
+      ok: boolean;
+      dashboard: {
+        name: string;
+        layerId: string;
+        metric: { value: number };
+        layer: { kind: string; pmtiles: { sourceLayer: string } };
+      };
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.dashboard.name).toBe("Parcel dashboard");
+    expect(body.dashboard.layerId).toBe("l-pmtiles");
+    expect(body.dashboard.metric.value).toBe(1000);
+    expect(body.dashboard.layer.kind).toBe("pmtiles");
+    expect(body.dashboard.layer.pmtiles.sourceLayer).toBe("parcels");
   });
 
   it("orthomosaics: 404 when the token lacks read:orthomosaics scope", async () => {

@@ -177,6 +177,8 @@ export function SharePanel({
         </section>
       )}
 
+      {canAdmin && <DashboardPublisher projectSlug={projectSlug} projectId={projectId} />}
+
       {canAdmin && <ShareLinkManager projectSlug={projectSlug} projectId={projectId} />}
     </div>
   );
@@ -370,6 +372,203 @@ function CancelInviteButton({
   );
 }
 
+type DashboardLayer = {
+  id: string;
+  name: string;
+  featureCount: number;
+};
+
+type DashboardConfig = {
+  id: string;
+  name: string;
+  isPublished: boolean;
+  layerId: string;
+  layerName: string;
+  metric: {
+    kind: "feature_count";
+    label: string;
+    value: number;
+  };
+};
+
+function DashboardPublisher({
+  projectSlug,
+  projectId,
+}: {
+  projectSlug: string;
+  projectId: string;
+}) {
+  const [dashboard, setDashboard] = useState<DashboardConfig | null>(null);
+  const [pmtilesLayers, setPmtilesLayers] = useState<DashboardLayer[]>([]);
+  const [name, setName] = useState("Public dashboard");
+  const [layerId, setLayerId] = useState("");
+  const [isPublished, setIsPublished] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(projectApiPath(projectSlug, projectId, "dashboard"), {
+        cache: "no-store",
+      });
+      const body = (await res.json()) as {
+        ok: boolean;
+        dashboard?: DashboardConfig | null;
+        pmtilesLayers?: DashboardLayer[];
+        error?: string;
+      };
+      if (!res.ok || !body.ok) throw new Error(body.error ?? `Failed (${res.status})`);
+
+      const layers = body.pmtilesLayers ?? [];
+      const existing = body.dashboard ?? null;
+      setDashboard(existing);
+      setPmtilesLayers(layers);
+      if (existing) {
+        setName(existing.name);
+        setLayerId(existing.layerId);
+        setIsPublished(existing.isPublished);
+      } else {
+        setName("Public dashboard");
+        setLayerId(layers[0]?.id ?? "");
+        setIsPublished(true);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectSlug, projectId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (saving || !layerId) return;
+    setSaving(true);
+    setError(null);
+    setNote(null);
+    try {
+      const res = await fetch(projectApiPath(projectSlug, projectId, "dashboard"), {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim() || "Public dashboard",
+          layerId,
+          isPublished,
+        }),
+      });
+      const body = (await res.json()) as {
+        ok: boolean;
+        dashboard?: DashboardConfig;
+        pmtilesLayers?: DashboardLayer[];
+        error?: string;
+      };
+      if (!res.ok || !body.ok || !body.dashboard) {
+        throw new Error(body.error ?? `Failed (${res.status})`);
+      }
+      setDashboard(body.dashboard);
+      setPmtilesLayers(body.pmtilesLayers ?? pmtilesLayers);
+      setName(body.dashboard.name);
+      setLayerId(body.dashboard.layerId);
+      setIsPublished(body.dashboard.isPublished);
+      setNote(body.dashboard.isPublished ? "Dashboard published." : "Dashboard saved.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const selectedLayer = pmtilesLayers.find((layer) => layer.id === layerId);
+  const metricValue = dashboard && selectedLayer && dashboard.layerId === selectedLayer.id
+    ? dashboard.metric.value
+    : selectedLayer?.featureCount;
+
+  return (
+    <section className="rounded-md border border-[color:var(--border)] bg-[color:var(--card)] p-4">
+      <header className="mb-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-[color:var(--muted)]">
+          Public dashboard
+        </h2>
+      </header>
+
+      {loading ? (
+        <p className="text-sm text-[color:var(--muted)]">Loading…</p>
+      ) : (
+        <form onSubmit={save} className="grid gap-3">
+          <div className="grid gap-2 md:grid-cols-[1fr_1fr]">
+            <label className="flex flex-col text-[11px]">
+              <span className="mb-1 text-[color:var(--muted)]">Title</span>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="rounded border border-[color:var(--border)] bg-[color:var(--background)] px-2 py-1.5 text-sm outline-none focus:border-[color:var(--accent)]"
+                maxLength={120}
+                required
+              />
+            </label>
+            <label className="flex flex-col text-[11px]">
+              <span className="mb-1 text-[color:var(--muted)]">PMTiles layer</span>
+              <select
+                value={layerId}
+                onChange={(e) => setLayerId(e.target.value)}
+                className="rounded border border-[color:var(--border)] bg-[color:var(--background)] px-2 py-1.5 text-sm outline-none focus:border-[color:var(--accent)]"
+                disabled={pmtilesLayers.length === 0}
+                required
+              >
+                {pmtilesLayers.length === 0 ? (
+                  <option value="">No PMTiles layers</option>
+                ) : (
+                  pmtilesLayers.map((layer) => (
+                    <option key={layer.id} value={layer.id}>
+                      {layer.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+          </div>
+
+          <div className="flex flex-wrap items-end justify-between gap-3 border-t border-[color:var(--border)] pt-3">
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={isPublished}
+                onChange={(e) => setIsPublished(e.target.checked)}
+              />
+              <span>Published</span>
+            </label>
+            {selectedLayer && (
+              <div className="min-w-0 text-right">
+                <p className="text-[10px] uppercase tracking-wider text-[color:var(--muted)]">
+                  Features
+                </p>
+                <p className="text-lg font-semibold">{formatCount(metricValue ?? 0)}</p>
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={saving || !layerId || pmtilesLayers.length === 0}
+              className="rounded bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save dashboard"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {note && <p className="mt-2 text-xs text-[color:var(--muted)]">{note}</p>}
+      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+    </section>
+  );
+}
+
 type ShareLink = {
   id: string;
   prefix: string;
@@ -554,4 +753,8 @@ function ShareLinkManager({ projectSlug, projectId }: { projectSlug: string; pro
       {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
     </section>
   );
+}
+
+function formatCount(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
 }
