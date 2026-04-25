@@ -114,6 +114,10 @@ pnpm hosted:smoke -- --scope=public-pmtiles --pmtiles-url=https://<public-host>/
 This scope only performs a public range request and fails unless the first
 bytes decode to `PMTiles`.
 
+The same no-secret check is available from GitHub Actions as **Production
+smoke**. Trigger it manually with `base_url=https://opengeo.vercel.app`; provide
+`pmtiles_url` when you want the public PMTiles range proof in the same run.
+
 CI also has a push-to-`main` Vercel env inventory gate. Because Vercel does not
 return encrypted/sensitive values through `env pull`, the gate checks required
 Production and Preview key presence through the Vercel API without printing or

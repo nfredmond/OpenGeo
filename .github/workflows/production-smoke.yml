@@ -1,0 +1,62 @@
+name: Production smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Production or preview base URL to check.
+        required: true
+        default: https://opengeo.vercel.app
+      pmtiles_url:
+        description: Optional public .pmtiles archive URL for range-proof smoke.
+        required: false
+        default: ""
+
+jobs:
+  public-smoke:
+    name: Public production smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Health endpoint
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+        run: |
+          set -euo pipefail
+          base_url="${BASE_URL%/}"
+          test -n "$base_url" || (echo "base_url input is required" && exit 1)
+          report="$(curl -fsS "$base_url/api/health")"
+          echo "$report"
+          REPORT="$report" node - <<'NODE'
+          const report = JSON.parse(process.env.REPORT ?? "{}");
+          if (report.status !== "ok") {
+            console.error(`Expected health status=ok, got ${JSON.stringify(report.status)}`);
+            process.exit(1);
+          }
+          NODE
+
+      - name: Public PMTiles range proof
+        if: ${{ inputs.pmtiles_url != '' }}
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          PMTILES_URL: ${{ inputs.pmtiles_url }}
+        run: |
+          set -euo pipefail
+          pnpm hosted:smoke -- \
+            --base-url="$BASE_URL" \
+            --scope=public-pmtiles \
+            --pmtiles-url="$PMTILES_URL" \
+            --json
