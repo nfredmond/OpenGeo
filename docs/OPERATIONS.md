@@ -117,7 +117,12 @@ bytes decode to `PMTiles`.
 CI also has a push-to-`main` Vercel env inventory gate. Because Vercel does not
 return encrypted/sensitive values through `env pull`, the gate checks required
 Production and Preview key presence through the Vercel API without printing or
-duplicating provider secrets.
+duplicating provider secrets. To run the same metadata-only check locally with
+`VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` exported:
+
+```bash
+pnpm vercel:env:inventory
+```
 
 ### Supabase Auth redirect URLs
 
