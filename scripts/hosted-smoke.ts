@@ -23,8 +23,9 @@ const WGS84_PRJ =
 
 export type HostedSmokeArgs = {
   baseUrl: string;
-  scope: "all";
+  scope: "all" | "public-pmtiles";
   json: boolean;
+  pmtilesUrl?: string;
 };
 
 export type SmokeStepName =
@@ -33,6 +34,7 @@ export type SmokeStepName =
   | "projects"
   | "geojson-upload"
   | "pmtiles"
+  | "public-pmtiles"
   | "ai-query"
   | "shapefile-upload"
   | "ai-style"
@@ -135,6 +137,7 @@ export function parseHostedSmokeArgs(argv: string[]): HostedSmokeArgs {
   let baseUrl = DEFAULT_BASE_URL;
   let scope: HostedSmokeArgs["scope"] = "all";
   let json = false;
+  let pmtilesUrl: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -158,20 +161,37 @@ export function parseHostedSmokeArgs(argv: string[]): HostedSmokeArgs {
     if (arg === "--scope") {
       const value = argv[++i];
       if (!value) throw new Error("--scope requires a value.");
-      if (value !== "all") throw new Error(`Unsupported --scope=${value}. Use --scope=all.`);
-      scope = value;
+      scope = parseHostedSmokeScope(value);
       continue;
     }
     if (arg.startsWith("--scope=")) {
       const value = arg.slice("--scope=".length);
-      if (value !== "all") throw new Error(`Unsupported --scope=${value}. Use --scope=all.`);
-      scope = value;
+      scope = parseHostedSmokeScope(value);
+      continue;
+    }
+    if (arg === "--pmtiles-url") {
+      const value = argv[++i];
+      if (!value) throw new Error("--pmtiles-url requires a value.");
+      pmtilesUrl = value;
+      continue;
+    }
+    if (arg.startsWith("--pmtiles-url=")) {
+      pmtilesUrl = arg.slice("--pmtiles-url=".length);
       continue;
     }
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  return { baseUrl: normalizeBaseUrl(baseUrl), scope, json };
+  if (scope === "public-pmtiles" && !pmtilesUrl) {
+    throw new Error("--scope=public-pmtiles requires --pmtiles-url.");
+  }
+  if (pmtilesUrl && scope !== "public-pmtiles") {
+    throw new Error("--pmtiles-url requires --scope=public-pmtiles.");
+  }
+
+  const parsed: HostedSmokeArgs = { baseUrl: normalizeBaseUrl(baseUrl), scope, json };
+  if (pmtilesUrl) parsed.pmtilesUrl = normalizePublicPmtilesUrl(pmtilesUrl);
+  return parsed;
 }
 
 export function hostedSmokeExitCode(report: Pick<HostedSmokeReport, "ok">): number {
@@ -330,6 +350,10 @@ export async function runHostedSmoke(
   args: HostedSmokeArgs,
   deps: HostedSmokeDeps,
 ): Promise<HostedSmokeReport> {
+  if (args.scope === "public-pmtiles") {
+    return runPublicPmtilesSmoke(args, deps);
+  }
+
   requireEnv(deps.env, [
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_ANON_KEY",
@@ -649,6 +673,60 @@ export async function runHostedSmoke(
     }
     return { ok, baseUrl: args.baseUrl, runId, steps, cleanup };
   }
+}
+
+async function runPublicPmtilesSmoke(
+  args: HostedSmokeArgs,
+  deps: HostedSmokeDeps,
+): Promise<HostedSmokeReport> {
+  const runId = smokeRunId(deps.now());
+  const steps: SmokeStepResult[] = [];
+
+  if (!args.json) {
+    deps.stdout("OpenGeo public PMTiles smoke");
+    deps.stdout(`  url: ${args.pmtilesUrl ?? "(missing)"}`);
+    deps.stdout(`  run: ${runId}`);
+    deps.stdout("");
+  }
+
+  const started = Date.now();
+  try {
+    if (!args.pmtilesUrl) throw new Error("--pmtiles-url is required.");
+    const range = await deps.fetch(args.pmtilesUrl, {
+      headers: { range: "bytes=0-15" },
+    });
+    const header = new Uint8Array(await range.arrayBuffer());
+    const note = pmtilesPublicFetchProof({
+      url: args.pmtilesUrl,
+      status: range.status,
+      header,
+    });
+    const result: SmokeStepResult = {
+      step: "public-pmtiles",
+      ok: true,
+      ms: Date.now() - started,
+      note,
+    };
+    steps.push(result);
+    if (!args.json) deps.stdout(`  ✓ ${result.step} — ${result.note} (${result.ms}ms)`);
+  } catch (error) {
+    const result: SmokeStepResult = {
+      step: "public-pmtiles",
+      ok: false,
+      ms: Date.now() - started,
+      note: publicError(error),
+    };
+    steps.push(result);
+    if (!args.json) deps.stdout(`  ✗ ${result.step} — ${result.note} (${result.ms}ms)`);
+  }
+
+  return {
+    ok: steps.every((step) => step.ok),
+    baseUrl: args.baseUrl,
+    runId,
+    steps,
+    cleanup: [],
+  };
 }
 
 async function captureUserOrg(
@@ -1032,6 +1110,23 @@ function normalizeBaseUrl(value: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
+function parseHostedSmokeScope(value: string): HostedSmokeArgs["scope"] {
+  if (value === "all" || value === "public-pmtiles") return value;
+  throw new Error(`Unsupported --scope=${value}. Use all or public-pmtiles.`);
+}
+
+function normalizePublicPmtilesUrl(value: string): string {
+  const url = new URL(value);
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("--pmtiles-url must use http or https.");
+  }
+  if (!url.pathname.toLowerCase().endsWith(".pmtiles")) {
+    throw new Error("--pmtiles-url must point to a .pmtiles archive.");
+  }
+  url.hash = "";
+  return url.toString();
+}
+
 function smokeRunId(now: Date): string {
   const stamp = now.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
   return `opengeo-smoke-${stamp}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1074,11 +1169,14 @@ async function main() {
   ];
 
   try {
-    const adminClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-      process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-      { auth: { persistSession: false, autoRefreshToken: false } },
-    ) as unknown as SupabaseAdminLike;
+    const adminClient =
+      args.scope === "public-pmtiles"
+        ? ({} as SupabaseAdminLike)
+        : (createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+            process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+            { auth: { persistSession: false, autoRefreshToken: false } },
+          ) as unknown as SupabaseAdminLike);
     const report = await runHostedSmoke(args, {
       fetch,
       stdout: (message) => console.log(redactSensitive(message, sensitive)),

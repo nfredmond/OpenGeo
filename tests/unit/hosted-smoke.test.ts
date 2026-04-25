@@ -6,6 +6,7 @@ import {
   parseHostedSmokeArgs,
   pmtilesPublicFetchProof,
   redactSensitive,
+  runHostedSmoke,
   splitSetCookieHeader,
   type SupabaseAdminLike,
 } from "@/scripts/hosted-smoke";
@@ -33,8 +34,37 @@ describe("hosted-smoke helpers", () => {
     });
   });
 
+  it("parses the public PMTiles scope", () => {
+    expect(
+      parseHostedSmokeArgs([
+        "--scope=public-pmtiles",
+        "--pmtiles-url",
+        "https://assets.example.com/pmtiles/layer/smoke.pmtiles#ignored",
+        "--json",
+      ]),
+    ).toEqual({
+      baseUrl: "https://opengeo.vercel.app",
+      scope: "public-pmtiles",
+      json: true,
+      pmtilesUrl: "https://assets.example.com/pmtiles/layer/smoke.pmtiles",
+    });
+  });
+
   it("rejects unsupported scopes", () => {
     expect(() => parseHostedSmokeArgs(["--scope=pmtiles"])).toThrow(/Unsupported/);
+  });
+
+  it("requires a public PMTiles URL only for the public PMTiles scope", () => {
+    expect(() => parseHostedSmokeArgs(["--scope=public-pmtiles"])).toThrow(/--pmtiles-url/);
+    expect(() =>
+      parseHostedSmokeArgs([
+        "--scope=public-pmtiles",
+        "--pmtiles-url=ftp://assets.example.com/layer.pmtiles",
+      ]),
+    ).toThrow(/http or https/);
+    expect(() =>
+      parseHostedSmokeArgs(["--pmtiles-url=https://assets.example.com/layer.pmtiles"]),
+    ).toThrow(/--scope=public-pmtiles/);
   });
 
   it("redacts configured secret values from output", () => {
@@ -91,6 +121,43 @@ describe("hosted-smoke helpers", () => {
         header,
       }),
     ).toThrow(/unexpected magic header/);
+  });
+
+  it("runs the public PMTiles smoke without hosted credentials", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(new TextEncoder().encode("PMTiles fixture bytes"), { status: 206 });
+    }) as unknown as typeof fetch;
+
+    const report = await runHostedSmoke(
+      {
+        baseUrl: "https://opengeo.vercel.app",
+        scope: "public-pmtiles",
+        json: true,
+        pmtilesUrl: "https://assets.example.com/pmtiles/layer/smoke.pmtiles",
+      },
+      {
+        fetch: fetchImpl,
+        stdout: vi.fn(),
+        stderr: vi.fn(),
+        now: () => new Date("2026-04-25T00:00:00.000Z"),
+        adminClient: {} as SupabaseAdminLike,
+        env: { NODE_ENV: "test" },
+      },
+    );
+
+    expect(report.ok).toBe(true);
+    expect(report.cleanup).toEqual([]);
+    expect(report.steps).toMatchObject([
+      {
+        step: "public-pmtiles",
+        ok: true,
+        note: "public=assets.example.com range=206 magic=PMTiles",
+      },
+    ]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://assets.example.com/pmtiles/layer/smoke.pmtiles",
+      { headers: { range: "bytes=0-15" } },
+    );
   });
 
   it("cleans temporary resources in the expected order", async () => {

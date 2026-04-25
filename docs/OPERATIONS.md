@@ -103,6 +103,17 @@ status, timings, and non-secret identifiers. The PMTiles step reports a
 published archive URL; absence of that proof means the public publishing path
 did not complete even if the local bridge health checks passed.
 
+To verify an already published production PMTiles archive without Supabase or
+R2 credentials, run the public-only scope with the archive URL captured from a
+hosted smoke or production share:
+
+```bash
+pnpm hosted:smoke -- --scope=public-pmtiles --pmtiles-url=https://<public-host>/<path>.pmtiles --json
+```
+
+This scope only performs a public range request and fails unless the first
+bytes decode to `PMTiles`.
+
 CI also has a push-to-`main` Vercel env inventory gate. Because Vercel does not
 return encrypted/sensitive values through `env pull`, the gate checks required
 Production and Preview key presence through the Vercel API without printing or
