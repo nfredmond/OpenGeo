@@ -46,7 +46,33 @@ type ShareDashboard = {
     label: string;
     value: number;
   };
+  widgets?: ShareDashboardWidget[];
 };
+
+type ShareDashboardMapWidget = {
+  id: string;
+  type: "pmtiles_map";
+  title: string;
+  layerId: string;
+  layerName: string;
+};
+
+type ShareDashboardChartWidget = {
+  id: string;
+  type: "feature_count_chart";
+  title: string;
+  layerId: string;
+  layerName: string;
+  display: "stat" | "bar";
+  metric: {
+    kind: "feature_count";
+    label: string;
+    value: number;
+  };
+  series?: Array<{ label: string; value: number }>;
+};
+
+type ShareDashboardWidget = ShareDashboardMapWidget | ShareDashboardChartWidget;
 
 export function PublicMap({ token }: { token: string }) {
   const [project, setProject] = useState<ShareProjectResponse["project"] | null>(null);
@@ -165,9 +191,10 @@ export function PublicMap({ token }: { token: string }) {
         maxzoom: 22,
       });
     }
-    const fitLayerId = dashboard?.layerId ?? layers[0]?.id;
+    const mapWidget = dashboard?.widgets?.find(isDashboardMapWidget);
+    const fitLayerId = mapWidget?.layerId ?? dashboard?.layerId ?? layers[0]?.id;
     if (fitLayerId) mapRef.current.fitLayer(fitLayerId);
-  }, [dashboard?.layerId, layers, orthomosaics]);
+  }, [dashboard?.layerId, dashboard?.widgets, layers, orthomosaics]);
 
   const toggle = useCallback((id: string) => {
     setVisibility((prev) => {
@@ -214,6 +241,24 @@ export function PublicMap({ token }: { token: string }) {
   const expiryLabel = expiresAt
     ? `Expires ${new Date(expiresAt).toLocaleDateString()}`
     : "No expiry";
+  const chartWidgets = dashboard
+    ? dashboard.widgets?.filter(isDashboardChartWidget) ?? []
+    : [];
+  const visibleCharts =
+    dashboard && chartWidgets.length === 0
+      ? [
+          {
+            id: "legacy-feature-count",
+            type: "feature_count_chart" as const,
+            title: dashboard.metric.label,
+            layerId: dashboard.layerId,
+            layerName: dashboard.layerName,
+            display: "stat" as const,
+            metric: dashboard.metric,
+          },
+        ]
+      : chartWidgets;
+  const maxChartValue = Math.max(1, ...visibleCharts.map((widget) => widget.metric.value));
 
   return (
     <div className="flex h-screen w-screen flex-col">
@@ -242,16 +287,41 @@ export function PublicMap({ token }: { token: string }) {
                 Dashboard
               </h2>
               <p className="truncate text-sm font-semibold">{dashboard.name}</p>
-              <div className="mt-3">
-                <p className="text-[10px] uppercase tracking-wider text-[color:var(--muted)]">
-                  {dashboard.metric.label}
-                </p>
-                <p className="mt-1 text-2xl font-semibold tracking-tight">
-                  {formatCount(dashboard.metric.value)}
-                </p>
-                <p className="mt-1 truncate text-[11px] text-[color:var(--muted)]">
-                  {dashboard.layerName}
-                </p>
+              <div className="mt-3 grid gap-3">
+                {visibleCharts.map((widget) => (
+                  <div key={widget.id}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-[10px] uppercase tracking-wider text-[color:var(--muted)]">
+                          {widget.title}
+                        </p>
+                        <p className="mt-1 text-2xl font-semibold tracking-tight">
+                          {formatCount(widget.metric.value)}
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded border border-[color:var(--border)] px-1.5 py-0.5 text-[10px] text-[color:var(--muted)]">
+                        {widget.display}
+                      </span>
+                    </div>
+                    {widget.display === "bar" && (
+                      <div className="mt-2 h-1.5 rounded bg-[color:var(--border)]">
+                        <div
+                          className="h-1.5 rounded bg-[color:var(--accent)]"
+                          style={{
+                            width: `${
+                              widget.metric.value > 0
+                                ? Math.max(4, (widget.metric.value / maxChartValue) * 100)
+                                : 0
+                            }%`,
+                          }}
+                        />
+                      </div>
+                    )}
+                    <p className="mt-1 truncate text-[11px] text-[color:var(--muted)]">
+                      {widget.layerName}
+                    </p>
+                  </div>
+                ))}
               </div>
             </section>
           )}
@@ -308,4 +378,14 @@ function titilerTilesUrl(cogUrl: string): string {
 
 function formatCount(value: number): string {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
+}
+
+function isDashboardMapWidget(widget: ShareDashboardWidget): widget is ShareDashboardMapWidget {
+  return widget.type === "pmtiles_map";
+}
+
+function isDashboardChartWidget(
+  widget: ShareDashboardWidget,
+): widget is ShareDashboardChartWidget {
+  return widget.type === "feature_count_chart";
 }

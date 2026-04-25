@@ -384,12 +384,29 @@ type DashboardConfig = {
   isPublished: boolean;
   layerId: string;
   layerName: string;
+  widgets?: DashboardWidget[];
   metric: {
     kind: "feature_count";
     label: string;
     value: number;
   };
 };
+
+type DashboardWidget =
+  | {
+      id: string;
+      type: "pmtiles_map";
+      title: string;
+      layerId: string;
+      zoomToLayer?: boolean;
+    }
+  | {
+      id: string;
+      type: "feature_count_chart";
+      title: string;
+      layerId: string;
+      display?: "stat" | "bar";
+    };
 
 function DashboardPublisher({
   projectSlug,
@@ -461,6 +478,22 @@ function DashboardPublisher({
           name: name.trim() || "Public dashboard",
           layerId,
           isPublished,
+          widgets: [
+            {
+              id: "map",
+              type: "pmtiles_map",
+              title: "Map",
+              layerId,
+              zoomToLayer: true,
+            },
+            {
+              id: "feature-count",
+              type: "feature_count_chart",
+              title: "Features",
+              layerId,
+              display: "stat",
+            },
+          ],
         }),
       });
       const body = (await res.json()) as {

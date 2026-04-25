@@ -23,6 +23,8 @@ type ProjectDashboardRow = {
   layer_id: string;
   metric_kind: "feature_count";
   is_published: boolean;
+  schema_version?: number;
+  widgets?: unknown;
   updated_at: string;
 };
 
@@ -157,6 +159,8 @@ function buildFromMock(table: string) {
         layer_id: row.layer_id as string,
         metric_kind: "feature_count",
         is_published: row.is_published as boolean,
+        schema_version: row.schema_version as number,
+        widgets: row.widgets,
         updated_at: row.updated_at as string,
       };
       return chain;
@@ -245,13 +249,21 @@ describe("project dashboard route", () => {
     const res = await routeMod.GET(req(), ctx);
     const body = (await res.json()) as {
       ok: boolean;
-      dashboard: { name: string; metric: { value: number } };
+      dashboard: {
+        name: string;
+        metric: { value: number };
+        widgets: unknown[];
+      };
       pmtilesLayers: Array<{ id: string; name: string }>;
     };
 
     expect(res.status).toBe(200);
     expect(body.dashboard.name).toBe("Parcel dashboard");
     expect(body.dashboard.metric.value).toBe(42);
+    expect(body.dashboard.widgets).toMatchObject([
+      { id: "map", type: "pmtiles_map", layerId: pmtilesLayerId },
+      { id: "feature-count", type: "feature_count_chart", layerId: pmtilesLayerId },
+    ]);
     expect(body.pmtilesLayers.map((layer) => ({ id: layer.id, name: layer.name }))).toEqual([
       { id: pmtilesLayerId, name: "Hosted parcels" },
     ]);
@@ -263,22 +275,43 @@ describe("project dashboard route", () => {
         name: "Published parcels",
         layerId: pmtilesLayerId,
         isPublished: true,
+        widgets: [
+          {
+            id: "map",
+            type: "pmtiles_map",
+            title: "Map",
+            layerId: pmtilesLayerId,
+          },
+          {
+            id: "feature-count",
+            type: "feature_count_chart",
+            title: "Features",
+            layerId: pmtilesLayerId,
+            display: "bar",
+          },
+        ],
       }),
       ctx,
     );
     const body = (await res.json()) as {
       ok: boolean;
-      dashboard: { layerId: string; metric: { value: number } };
+      dashboard: {
+        layerId: string;
+        metric: { value: number };
+        widgets: Array<{ id: string; display?: string }>;
+      };
     };
 
     expect(res.status).toBe(200);
     expect(body.dashboard.layerId).toBe(pmtilesLayerId);
     expect(body.dashboard.metric.value).toBe(42);
+    expect(body.dashboard.widgets[1]).toMatchObject({ id: "feature-count", display: "bar" });
     expect(state.dashboard).toMatchObject({
       project_id: projectId,
       layer_id: pmtilesLayerId,
       name: "Published parcels",
       is_published: true,
+      schema_version: 1,
     });
   });
 
@@ -288,6 +321,34 @@ describe("project dashboard route", () => {
         name: "Bad dashboard",
         layerId: vectorLayerId,
         isPublished: true,
+      }),
+      ctx,
+    );
+
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT rejects chart widgets outside the project PMTiles set", async () => {
+    const res = await routeMod.PUT(
+      req("PUT", {
+        name: "Bad dashboard",
+        layerId: pmtilesLayerId,
+        isPublished: true,
+        widgets: [
+          {
+            id: "map",
+            type: "pmtiles_map",
+            title: "Map",
+            layerId: pmtilesLayerId,
+          },
+          {
+            id: "bad-chart",
+            type: "feature_count_chart",
+            title: "Other features",
+            layerId: vectorLayerId,
+            display: "stat",
+          },
+        ],
       }),
       ctx,
     );

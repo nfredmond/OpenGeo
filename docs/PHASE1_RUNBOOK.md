@@ -596,8 +596,11 @@ Registering a hosted archive only needs a public PMTiles URL.
 
 ## P2.6 Publish a public PMTiles dashboard *(zero extra infrastructure)*
 
-The dashboard MVP is intentionally narrow: one PMTiles map layer and one
-feature-count metric on the existing `/p/<token>` public share page.
+The dashboard MVP is intentionally narrow: one PMTiles map widget and
+feature-count chart widgets on the existing `/p/<token>` public share page.
+The API stores a versioned widget definition, but the share-page publisher still
+emits the default map plus **Features** chart instead of exposing a generic
+dashboard builder.
 
 **Prereqs:**
 
@@ -616,7 +619,7 @@ feature-count metric on the existing `/p/<token>` public share page.
 - The public page still renders the project map and PMTiles layer through the
   existing share route.
 - The left rail shows a **Dashboard** block with the configured title and a
-  **Features** metric for the selected PMTiles layer.
+  **Features** chart widget for the selected PMTiles layer.
 - Unchecking **Published** and saving hides only the dashboard block; the
   ordinary shared map remains available while the share link is active.
 

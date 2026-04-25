@@ -7,9 +7,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: Se
 ### Added
 - Public PMTiles dashboard MVP: `opengeo.project_dashboards`, authenticated
   `/api/projects/[slug]/dashboard`, public `/api/share/[token]/dashboard`, a
-  project share-page publisher, and a `/p/<token>` metric widget. Scope is one
-  project PMTiles map layer plus a feature-count metric, intentionally short of
-  the generic dashboard builder.
+  project share-page publisher, and `/p/<token>` rendering. Scope is one
+  project-scoped PMTiles map widget plus constrained feature-count chart widgets,
+  intentionally short of the generic dashboard builder.
 - Vercel env inventory gate is now reusable as `pnpm vercel:env:inventory`,
   with unit coverage for required-key detection and branch-scoped preview envs.
 - No-cost PMTiles bridge can now run `pnpm pmtiles:bridge watch --update-vercel`

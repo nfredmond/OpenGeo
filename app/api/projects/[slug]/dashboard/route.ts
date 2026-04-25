@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import {
+  DashboardWidgetsSchema,
+  dashboardWidgetsFromStored,
+  defaultDashboardWidgets,
+  validateDashboardWidgetLayers,
+  type DashboardWidget,
+} from "@/lib/dashboard";
 import { withRoute } from "@/lib/observability/with-route";
 import { parsePmtilesLayerMetadata, type PmtilesLayerMetadata } from "@/lib/pmtiles";
 import { supabaseServer } from "@/lib/supabase/server";
@@ -19,6 +26,7 @@ const DashboardBody = z.object({
   name: z.string().trim().min(1).max(120),
   layerId: z.string().uuid(),
   isPublished: z.boolean().default(true),
+  widgets: DashboardWidgetsSchema.optional(),
 });
 
 type ProjectLookup = { id: string; slug: string };
@@ -48,6 +56,8 @@ type DashboardRow = {
   layer_id: string;
   metric_kind: "feature_count";
   is_published: boolean;
+  schema_version?: number | null;
+  widgets?: unknown;
   updated_at: string;
 };
 
@@ -110,6 +120,23 @@ export const PUT = withRoute<{ slug: string }>(
       );
     }
 
+    const widgets = parsed.data.widgets ?? defaultDashboardWidgets(selected.id);
+    const widgetLayerError = validateDashboardWidgetLayers(
+      widgets,
+      layers.pmtilesLayers.map((layer) => layer.id),
+    );
+    if (widgetLayerError) {
+      return NextResponse.json({ ok: false, error: widgetLayerError }, { status: 400 });
+    }
+
+    const mapWidget = widgets.find((widget) => widget.type === "pmtiles_map");
+    if (mapWidget?.layerId !== selected.id) {
+      return NextResponse.json(
+        { ok: false, error: "Dashboard layerId must match the PMTiles map widget layerId." },
+        { status: 400 },
+      );
+    }
+
     const { data: row, error } = await supabase
       .schema("opengeo")
       .from("project_dashboards")
@@ -120,12 +147,16 @@ export const PUT = withRoute<{ slug: string }>(
           layer_id: selected.id,
           metric_kind: "feature_count",
           is_published: parsed.data.isPublished,
+          schema_version: 1,
+          widgets,
           created_by: userId,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "project_id" },
       )
-      .select("id, project_id, name, layer_id, metric_kind, is_published, updated_at")
+      .select(
+        "id, project_id, name, layer_id, metric_kind, is_published, schema_version, widgets, updated_at",
+      )
       .single();
 
     if (error) {
@@ -135,7 +166,7 @@ export const PUT = withRoute<{ slug: string }>(
 
     return NextResponse.json({
       ok: true,
-      dashboard: buildDashboard(row as DashboardRow, selected),
+      dashboard: buildDashboard(row as DashboardRow, layers.pmtilesLayers),
       pmtilesLayers: layers.pmtilesLayers,
     });
   },
@@ -237,7 +268,9 @@ async function loadDashboardPayload(
   const { data: row, error } = await supabase
     .schema("opengeo")
     .from("project_dashboards")
-    .select("id, project_id, name, layer_id, metric_kind, is_published, updated_at")
+    .select(
+      "id, project_id, name, layer_id, metric_kind, is_published, schema_version, widgets, updated_at",
+    )
     .eq("project_id", projectId)
     .maybeSingle();
 
@@ -251,7 +284,7 @@ async function loadDashboardPayload(
     : null;
 
   return {
-    dashboard: dashboardRow && selected ? buildDashboard(dashboardRow, selected) : null,
+    dashboard: dashboardRow && selected ? buildDashboard(dashboardRow, layers.pmtilesLayers) : null,
     pmtilesLayers: layers.pmtilesLayers,
   };
 }
@@ -305,11 +338,21 @@ async function loadProjectPmtilesLayers(
   return { pmtilesLayers };
 }
 
-function buildDashboard(row: DashboardRow, layer: DashboardLayer) {
+function buildDashboard(row: DashboardRow, layers: DashboardLayer[]) {
+  const layerById = new Map(layers.map((layer) => [layer.id, layer]));
+  const layer = layerById.get(row.layer_id);
+  if (!layer) return null;
+
+  const storedWidgets = dashboardWidgetsFromStored(row.widgets, row.layer_id);
+  const widgets = validateDashboardWidgetLayers(storedWidgets, layerById.keys())
+    ? defaultDashboardWidgets(row.layer_id)
+    : storedWidgets;
+
   return {
     id: row.id,
     name: row.name,
     isPublished: row.is_published,
+    schemaVersion: row.schema_version ?? 1,
     layerId: layer.id,
     layerName: layer.name,
     updatedAt: row.updated_at,
@@ -319,5 +362,30 @@ function buildDashboard(row: DashboardRow, layer: DashboardLayer) {
       value: layer.featureCount,
     },
     layer,
+    widgets: widgets.map((widget) => buildWidget(widget, layerById)),
+  };
+}
+
+function buildWidget(widget: DashboardWidget, layerById: Map<string, DashboardLayer>) {
+  const layer = layerById.get(widget.layerId);
+  if (!layer) throw new Error(`Dashboard widget references missing layer ${widget.layerId}`);
+
+  if (widget.type === "pmtiles_map") {
+    return {
+      ...widget,
+      layerName: layer.name,
+      layer,
+    };
+  }
+
+  return {
+    ...widget,
+    layerName: layer.name,
+    metric: {
+      kind: "feature_count" as const,
+      label: "Features",
+      value: layer.featureCount,
+    },
+    series: [{ label: layer.name, value: layer.featureCount }],
   };
 }

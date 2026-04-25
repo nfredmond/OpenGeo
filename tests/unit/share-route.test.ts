@@ -53,6 +53,8 @@ type TokenState = {
     layer_id: string;
     metric_kind: "feature_count";
     is_published: boolean;
+    schema_version?: number;
+    widgets?: unknown;
     updated_at: string;
   } | null;
   shareTokenRow: { expires_at: string | null; scopes: string[] } | null;
@@ -393,7 +395,7 @@ describe("GET /api/share/[token]/*", () => {
     expect(body.dashboard).toBeNull();
   });
 
-  it("dashboard: returns the published PMTiles feature-count metric", async () => {
+  it("dashboard: returns the published PMTiles map and chart widgets", async () => {
     state.resolvedProject["good-token.abcdefgh"] = {
       projectId: "p1",
       scopes: ["read:layers", "read:orthomosaics"],
@@ -422,6 +424,27 @@ describe("GET /api/share/[token]/*", () => {
         },
         updated_at: "2026-04-17T00:00:00Z",
       },
+      {
+        id: "l-buildings",
+        dataset_id: "d1",
+        name: "Hosted buildings",
+        geometry_kind: "polygon",
+        feature_count: 25,
+        style: null,
+        metadata: {
+          pmtiles: {
+            url: "https://cdn.example.com/buildings.pmtiles",
+            sourceLayer: "buildings",
+            bbox: [-122, 38, -121, 39],
+          },
+        },
+        dataset: {
+          project_id: "p1",
+          source_uri: "https://cdn.example.com/buildings.pmtiles",
+          kind: "pmtiles",
+        },
+        updated_at: "2026-04-17T00:00:00Z",
+      },
     ];
     state.dashboard = {
       id: "dash1",
@@ -430,6 +453,22 @@ describe("GET /api/share/[token]/*", () => {
       layer_id: "l-pmtiles",
       metric_kind: "feature_count",
       is_published: true,
+      schema_version: 1,
+      widgets: [
+        {
+          id: "map",
+          type: "pmtiles_map",
+          title: "Map",
+          layerId: "l-pmtiles",
+        },
+        {
+          id: "building-count",
+          type: "feature_count_chart",
+          title: "Buildings",
+          layerId: "l-buildings",
+          display: "bar",
+        },
+      ],
       updated_at: "2026-04-17T00:00:00Z",
     };
 
@@ -444,6 +483,14 @@ describe("GET /api/share/[token]/*", () => {
         layerId: string;
         metric: { value: number };
         layer: { kind: string; pmtiles: { sourceLayer: string } };
+        widgets: Array<{
+          id: string;
+          type: string;
+          layerId: string;
+          layerName: string;
+          display?: string;
+          metric?: { value: number };
+        }>;
       };
     };
 
@@ -453,6 +500,16 @@ describe("GET /api/share/[token]/*", () => {
     expect(body.dashboard.metric.value).toBe(1000);
     expect(body.dashboard.layer.kind).toBe("pmtiles");
     expect(body.dashboard.layer.pmtiles.sourceLayer).toBe("parcels");
+    expect(body.dashboard.widgets).toMatchObject([
+      { id: "map", type: "pmtiles_map", layerId: "l-pmtiles" },
+      {
+        id: "building-count",
+        type: "feature_count_chart",
+        layerId: "l-buildings",
+        display: "bar",
+        metric: { value: 25 },
+      },
+    ]);
   });
 
   it("orthomosaics: 404 when the token lacks read:orthomosaics scope", async () => {
