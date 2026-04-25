@@ -27,7 +27,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     process.exit(0);
   }
 
-  if (!["start", "status", "stop", "repair"].includes(parsed.command)) {
+  if (!["start", "status", "stop", "repair", "watch"].includes(parsed.command)) {
     console.error(`Unknown command: ${parsed.command}`);
     printHelp();
     process.exit(1);
@@ -57,16 +57,38 @@ async function main({ command, options }) {
     return;
   }
 
+  if (command === "watch") {
+    await watchBridge(options);
+    return;
+  }
+
   if (command === "start" || command === "repair") {
-    writeGeneratorEnv();
-    await ensureGenerator();
-    await waitForHealth(`${LOCAL_GENERATOR_URL}/health`);
-    await ensureTunnel();
-    await ensurePublicTunnelHealthy({
+    await ensureBridgeHealthy({
       forceRecreate: options.has("--force-recreate"),
     });
   }
 
+  const report = await buildBridgeStatusReport();
+  console.log(JSON.stringify(report, null, 2));
+
+  if (
+    (command === "start" || command === "repair") &&
+    report.tunnel.generatorUrl &&
+    options.has("--update-vercel")
+  ) {
+    await updateVercelEnv(report.tunnel.generatorUrl);
+  }
+}
+
+async function ensureBridgeHealthy({ forceRecreate = false } = {}) {
+  writeGeneratorEnv();
+  await ensureGenerator();
+  await waitForHealth(`${LOCAL_GENERATOR_URL}/health`);
+  await ensureTunnel();
+  await ensurePublicTunnelHealthy({ forceRecreate });
+}
+
+async function buildBridgeStatusReport() {
   const tunnelUrl = await currentTunnelUrl();
   const generatorUrl = tunnelUrl ? `${tunnelUrl}/generate` : null;
   if (tunnelUrl) {
@@ -81,34 +103,98 @@ async function main({ command, options }) {
   const publicHealth = tunnel.running && tunnelUrl
     ? await checkHealth(`${tunnelUrl}/health`)
     : unhealthy(tunnelUrl ? `${tunnelUrl}/health` : null, "tunnel URL is unavailable");
-  console.log(
-    JSON.stringify(
-      {
-        ok: Boolean(generator.running && tunnel.running && tunnelUrl && localHealth.ok && publicHealth.ok),
-        generator: {
-          container: GENERATOR_CONTAINER,
-          running: generator.running,
-          localUrl: `${LOCAL_GENERATOR_URL}/generate`,
-          health: localHealth,
-          image: GENERATOR_IMAGE,
-        },
-        tunnel: {
-          container: TUNNEL_CONTAINER,
-          running: tunnel.running,
-          url: tunnelUrl,
-          generatorUrl,
-          health: publicHealth,
-          urlFile: TUNNEL_URL_FILE,
-        },
-      },
-      null,
-      2,
-    ),
-  );
 
-  if ((command === "start" || command === "repair") && generatorUrl && options.has("--update-vercel")) {
-    await updateVercelEnv(generatorUrl);
+  return {
+    ok: Boolean(generator.running && tunnel.running && tunnelUrl && localHealth.ok && publicHealth.ok),
+    generator: {
+      container: GENERATOR_CONTAINER,
+      running: generator.running,
+      localUrl: `${LOCAL_GENERATOR_URL}/generate`,
+      health: localHealth,
+      image: GENERATOR_IMAGE,
+    },
+    tunnel: {
+      container: TUNNEL_CONTAINER,
+      running: tunnel.running,
+      url: tunnelUrl,
+      generatorUrl,
+      health: publicHealth,
+      urlFile: TUNNEL_URL_FILE,
+    },
+  };
+}
+
+async function watchBridge(options) {
+  const intervalSeconds = parseBridgeWatchIntervalSeconds(options);
+  let lastGeneratorUrl = null;
+
+  for (;;) {
+    const ts = new Date().toISOString();
+    try {
+      await ensureBridgeHealthy();
+      const report = await buildBridgeStatusReport();
+      let updatedVercel = false;
+
+      if (
+        options.has("--update-vercel") &&
+        report.tunnel.generatorUrl &&
+        report.tunnel.generatorUrl !== lastGeneratorUrl
+      ) {
+        await updateVercelEnv(report.tunnel.generatorUrl);
+        updatedVercel = true;
+      }
+
+      lastGeneratorUrl = report.tunnel.generatorUrl;
+      console.log(
+        JSON.stringify(
+          {
+            event: "pmtiles_bridge_watch",
+            ok: report.ok,
+            ts,
+            intervalSeconds,
+            updatedVercel,
+            bridge: report,
+          },
+          null,
+          2,
+        ),
+      );
+    } catch (error) {
+      console.error(
+        JSON.stringify(
+          {
+            event: "pmtiles_bridge_watch",
+            ok: false,
+            ts,
+            intervalSeconds,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          null,
+          2,
+        ),
+      );
+    }
+
+    if (options.has("--once")) return;
+    await sleep(intervalSeconds * 1000);
   }
+}
+
+export function parseBridgeWatchIntervalSeconds(options) {
+  const raw = getBridgeOptionValue(options, "--interval") ?? "300";
+  const seconds = Number(raw);
+
+  if (!Number.isInteger(seconds) || seconds < 30) {
+    throw new Error("Invalid --interval value. Use an integer number of seconds >= 30.");
+  }
+
+  return seconds;
+}
+
+export function getBridgeOptionValue(options, name) {
+  const prefix = `${name}=`;
+  const option = [...options].find((value) => value.startsWith(prefix));
+  return option ? option.slice(prefix.length) : null;
 }
 
 async function requireDocker() {
@@ -475,6 +561,7 @@ function printHelp() {
   console.log(`Usage:
   node scripts/pmtiles-local-bridge.mjs start [--update-vercel]
   node scripts/pmtiles-local-bridge.mjs repair [--update-vercel] [--force-recreate]
+  node scripts/pmtiles-local-bridge.mjs watch [--update-vercel] [--interval=300] [--once]
   node scripts/pmtiles-local-bridge.mjs status
   node scripts/pmtiles-local-bridge.mjs stop
 
@@ -487,6 +574,8 @@ Notes:
   start creates Docker containers with restart=unless-stopped.
   start verifies the public quick tunnel /health and recreates stale tunnels.
   repair runs the same verification path; --force-recreate always replaces the tunnel.
+  watch runs the repair path repeatedly; --interval is seconds and must be >= 30.
+  watch --once runs one repair/check cycle and exits.
   --update-vercel replaces PMTILES_GENERATOR_URL in Preview and Production.
 `);
 }

@@ -325,6 +325,20 @@ vercel deploy --prod -y
 trycloudflare hostname is stale or no longer resolves. Add `--force-recreate`
 to replace the tunnel even if the current public health check passes.
 
+For demo days where the bridge needs to survive quick tunnel churn, run the
+watch mode in a terminal or process manager on the host machine:
+
+```bash
+pnpm pmtiles:bridge watch --update-vercel --interval=300
+```
+
+`watch` runs the same health/repair path every interval. It prints JSON status
+events, recreates stale quick tunnels, and updates Vercel when the generator URL
+changes. Production still needs a redeploy after a Vercel env update, so keep
+`vercel deploy --prod -y` in the recovery checklist until Fly or a stable
+Cloudflare Tunnel hostname replaces the quick tunnel. Use `--once` for a single
+watchdog cycle that exits after printing its JSON status event.
+
 The bridge script reads `PMTILES_GENERATOR_TOKEN` from `.env.local` and writes
 only to `~/.cache/opengeo/pmtiles/generator.env` with mode `0600`. It does not
 print token values. Stop the demo bridge with:
