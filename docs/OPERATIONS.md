@@ -114,6 +114,81 @@ pnpm hosted:smoke -- --scope=public-pmtiles --pmtiles-url=https://<public-host>/
 This scope only performs a public range request and fails unless the first
 bytes decode to `PMTiles`.
 
+For the same public-only proof without loading `.env.local`, use the standalone
+validator. It accepts the full URL for the request, but only prints a redacted
+URL, host, range status, PMTiles magic, headers, and a short fingerprint. For
+capability URLs, pass the URL through an environment variable and run pnpm in
+silent mode so the package manager does not echo argv before the script can
+redact it:
+
+```bash
+PMTILES_PROOF_URL="$PUBLIC_PMTILES_URL" pnpm --silent pmtiles:proof -- --json
+```
+
+### Hosted operator-loop proof checklist
+
+Use this checklist when the next gate is a real public production PMTiles URL,
+share token, and dashboard smoke. Do not paste capability URLs, signed query
+strings, share tokens, bearer tokens, or raw `.env.local` values into logs,
+issues, Slack, or the final evidence pack.
+
+1. Capture the public PMTiles URL and public share token into local shell vars
+   only:
+
+   ```bash
+   export PUBLIC_PMTILES_URL='https://<public-host>/<path>.pmtiles'
+   export OPENGEO_SHARE_TOKEN='<share-token>'
+   ```
+
+2. Prove public PMTiles byte-range access without credentials:
+
+   ```bash
+   PMTILES_PROOF_URL="$PUBLIC_PMTILES_URL" pnpm --silent pmtiles:proof -- --json
+   ```
+
+3. Prove the public dashboard API resolves without printing the token:
+
+   ```bash
+   node <<'NODE'
+   const fs = require("node:fs");
+   (async () => {
+     const token = process.env.OPENGEO_SHARE_TOKEN;
+     if (!token) throw new Error("OPENGEO_SHARE_TOKEN is required");
+     const res = await fetch(`https://opengeo.vercel.app/api/share/${encodeURIComponent(token)}/dashboard`);
+     const body = await res.json();
+     fs.writeFileSync("/tmp/opengeo-dashboard-proof.json", JSON.stringify(body, null, 2));
+     console.log(JSON.stringify({
+       httpStatus: res.status,
+       ok: body.ok,
+       hasDashboard: body.dashboard !== null,
+       name: body.dashboard?.name ?? null,
+       layerKind: body.dashboard?.layer?.kind ?? null,
+       widgetCount: body.dashboard?.widgets?.length ?? 0,
+     }, null, 2));
+   })();
+   NODE
+   ```
+
+4. Open the public share page in a browser using the token from the local shell
+   variable, then record only redacted evidence:
+
+   ```text
+   share_page=https://opengeo.vercel.app/p/[redacted]
+   observed=dashboard panel visible; PMTiles layer renders; chart widgets visible
+   ```
+
+5. Evidence template:
+
+   ```text
+   OpenGeo hosted operator-loop proof — <date/time PT>
+   - app host: opengeo.vercel.app
+   - PMTiles proof: public=<host> range=206 magic=PMTiles fingerprint=<12-char>
+   - dashboard API: ok=<true|false> hasDashboard=<true|false> layerKind=pmtiles widgetCount=<n>
+   - browser smoke: /p/[redacted] dashboard visible, PMTiles layer renders, no auth required
+   - secrets/tokens exposed: no
+   - blocker: <none or exact remaining blocker>
+   ```
+
 The same no-secret check is available from GitHub Actions as **Production
 smoke**. Trigger it manually with `base_url=https://opengeo.vercel.app`; provide
 `pmtiles_url` when you want the public PMTiles range proof in the same run.
