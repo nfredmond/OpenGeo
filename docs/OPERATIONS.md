@@ -149,25 +149,12 @@ issues, Slack, or the final evidence pack.
 3. Prove the public dashboard API resolves without printing the token:
 
    ```bash
-   node <<'NODE'
-   const fs = require("node:fs");
-   (async () => {
-     const token = process.env.OPENGEO_SHARE_TOKEN;
-     if (!token) throw new Error("OPENGEO_SHARE_TOKEN is required");
-     const res = await fetch(`https://opengeo.vercel.app/api/share/${encodeURIComponent(token)}/dashboard`);
-     const body = await res.json();
-     fs.writeFileSync("/tmp/opengeo-dashboard-proof.json", JSON.stringify(body, null, 2));
-     console.log(JSON.stringify({
-       httpStatus: res.status,
-       ok: body.ok,
-       hasDashboard: body.dashboard !== null,
-       name: body.dashboard?.name ?? null,
-       layerKind: body.dashboard?.layer?.kind ?? null,
-       widgetCount: body.dashboard?.widgets?.length ?? 0,
-     }, null, 2));
-   })();
-   NODE
+   OPENGEO_SHARE_TOKEN="$OPENGEO_SHARE_TOKEN" pnpm --silent dashboard:proof -- --json
    ```
+
+   The script requests `/api/share/<token>/dashboard` but only prints the app
+   host, HTTP status, dashboard/layer/widget summary, `/p/[redacted]`, and a
+   short token fingerprint.
 
 4. Open the public share page in a browser using the token from the local shell
    variable, then record only redacted evidence:
