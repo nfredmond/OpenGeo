@@ -111,13 +111,25 @@ describe("hosted-smoke helpers", () => {
     ).toBe("public=assets.example.com range=206 magic=PMTiles");
   });
 
+  it("rejects public PMTiles responses that do not honor byte ranges", () => {
+    const header = new TextEncoder().encode("PMTiles fixture bytes");
+
+    expect(() =>
+      pmtilesPublicFetchProof({
+        url: "https://assets.example.com/pmtiles/layer/smoke.pmtiles",
+        status: 200,
+        header,
+      }),
+    ).toThrow(/expected HTTP 206/);
+  });
+
   it("rejects public PMTiles responses without the PMTiles magic header", () => {
     const header = new TextEncoder().encode("not-pmtiles");
 
     expect(() =>
       pmtilesPublicFetchProof({
         url: "https://assets.example.com/pmtiles/layer/smoke.pmtiles",
-        status: 200,
+        status: 206,
         header,
       }),
     ).toThrow(/unexpected magic header/);

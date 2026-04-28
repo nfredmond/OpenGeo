@@ -115,8 +115,8 @@ export async function provePublicPmtilesUrl(rawUrl, options = {}) {
     throw new Error(`Request failed for ${redactedUrl}: ${safeErrorMessage(error, rawUrl, redactedUrl)}`);
   }
 
-  if (![200, 206].includes(response.status)) {
-    throw new Error(`Expected HTTP 200 or 206 from ${redactedUrl}; got ${response.status}.`);
+  if (response.status !== 206) {
+    throw new Error(`Expected HTTP 206 byte-range response from ${redactedUrl}; got ${response.status}.`);
   }
 
   const bytes = new Uint8Array(await response.arrayBuffer());

@@ -99,9 +99,9 @@ GeoJSON and shapefile fixtures, publishes PMTiles, exercises AI query/style,
 public share revoke, and flight diff, then cleans up the temporary Supabase,
 auth, and R2 objects. It reads secrets from `.env.local` but only prints step
 status, timings, and non-secret identifiers. The PMTiles step reports a
-`public=<host> range=<status> magic=PMTiles` proof after range-reading the
-published archive URL; absence of that proof means the public publishing path
-did not complete even if the local bridge health checks passed.
+`public=<host> range=206 magic=PMTiles` proof after range-reading the published
+archive URL; absence of that proof means the public publishing path did not
+complete even if the local bridge health checks passed.
 
 To verify an already published production PMTiles archive without Supabase or
 R2 credentials, run the public-only scope with the archive URL captured from a
@@ -111,8 +111,8 @@ hosted smoke or production share:
 pnpm hosted:smoke -- --scope=public-pmtiles --pmtiles-url=https://<public-host>/<path>.pmtiles --json
 ```
 
-This scope only performs a public range request and fails unless the first
-bytes decode to `PMTiles`.
+This scope only performs a public range request and fails unless the response is
+HTTP 206 and the first bytes decode to `PMTiles`.
 
 For the same public-only proof without loading `.env.local`, use the standalone
 validator. It accepts the full URL for the request, but only prints a redacted
@@ -141,6 +141,9 @@ issues, Slack, or the final evidence pack.
    ```
 
 2. Prove public PMTiles byte-range access without credentials:
+
+   Expected result: JSON with `"status": 206`, `"magic": "PMTiles"`, and a
+   `urlFingerprint`, with no full URL or token in the output.
 
    ```bash
    PMTILES_PROOF_URL="$PUBLIC_PMTILES_URL" pnpm --silent pmtiles:proof -- --json

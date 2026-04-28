@@ -220,8 +220,8 @@ export function pmtilesPublicFetchProof({
   status: number;
   header: Uint8Array;
 }): string {
-  if (![200, 206].includes(status)) {
-    throw new Error(`Public PMTiles fetch failed with HTTP ${status}.`);
+  if (status !== 206) {
+    throw new Error(`Public PMTiles byte-range fetch expected HTTP 206; got ${status}.`);
   }
   const magic = new TextDecoder().decode(header.slice(0, 7));
   if (magic !== "PMTiles") {
