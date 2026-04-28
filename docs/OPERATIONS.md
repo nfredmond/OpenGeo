@@ -140,24 +140,43 @@ issues, Slack, or the final evidence pack.
    export OPENGEO_SHARE_TOKEN='<share-token>'
    ```
 
-2. Prove public PMTiles byte-range access without credentials:
+2. Prove public PMTiles byte-range access without credentials and keep the
+   redacted proof as the dashboard fixture contract:
 
    Expected result: JSON with `"status": 206`, `"magic": "PMTiles"`, and a
    `urlFingerprint`, with no full URL or token in the output.
 
    ```bash
-   PMTILES_PROOF_URL="$PUBLIC_PMTILES_URL" pnpm --silent pmtiles:proof -- --json
+   PMTILES_PROOF_URL="$PUBLIC_PMTILES_URL" \
+     pnpm --silent pmtiles:proof -- --json > /tmp/opengeo-pmtiles-proof.json
    ```
 
-3. Prove the public dashboard API resolves without printing the token:
+3. Prove the public dashboard API resolves without printing the token, and
+   assert that its PMTiles layer URL has the same fingerprint as the 206 proof:
 
    ```bash
-   OPENGEO_SHARE_TOKEN="$OPENGEO_SHARE_TOKEN" pnpm --silent dashboard:proof -- --json
+   OPENGEO_SHARE_TOKEN="$OPENGEO_SHARE_TOKEN" \
+     pnpm --silent dashboard:proof -- \
+       --pmtiles-proof-file /tmp/opengeo-pmtiles-proof.json \
+       --json
    ```
 
    The script requests `/api/share/<token>/dashboard` but only prints the app
    host, HTTP status, dashboard/layer/widget summary, `/p/[redacted]`, and a
-   short token fingerprint.
+   short token fingerprint. With `--pmtiles-proof-file`, the JSON includes the
+   `opengeo.public-pmtiles-dashboard.v1` handoff checks:
+
+   - `pmtiles-range-206`
+   - `pmtiles-magic-header`
+   - `dashboard-api-ok`
+   - `dashboard-layer-pmtiles`
+   - `dashboard-widgets-present`
+   - `dashboard-pmtiles-fingerprint-match`
+
+   Treat the handoff as blocked if any check is absent or false. Do not replace
+   this with a screenshot-only dashboard smoke; the first operator loop needs
+   machine-readable proof that the public dashboard is pointing at the archive
+   that already passed HTTP 206 range validation.
 
 4. Open the public share page in a browser using the token from the local shell
    variable, then record only redacted evidence:

@@ -606,6 +606,12 @@ dashboard builder.
 
 - P2.2 has minted an active share link with `read:layers`.
 - P2.5 has registered or published at least one PMTiles layer in the project.
+- The PMTiles archive has a fresh no-secret range proof:
+
+  ```bash
+  PMTILES_PROOF_URL="$PUBLIC_PMTILES_URL" \
+    pnpm --silent pmtiles:proof -- --json > /tmp/opengeo-pmtiles-proof.json
+  ```
 
 **Do:**
 
@@ -613,6 +619,14 @@ dashboard builder.
 - In **Public dashboard**, pick a PMTiles layer, set the title, leave
   **Published** checked, and save.
 - Open the existing `/p/<token>` share URL.
+- Run the no-secret dashboard handoff proof:
+
+  ```bash
+  OPENGEO_SHARE_TOKEN="$OPENGEO_SHARE_TOKEN" \
+    pnpm --silent dashboard:proof -- \
+      --pmtiles-proof-file /tmp/opengeo-pmtiles-proof.json \
+      --json
+  ```
 
 **Expect:**
 
@@ -620,6 +634,12 @@ dashboard builder.
   existing share route.
 - The left rail shows a **Dashboard** block with the configured title and a
   **Features** chart widget for the selected PMTiles layer.
+- The dashboard proof JSON reports contract
+  `opengeo.public-pmtiles-dashboard.v1` with `pmtiles-range-206`,
+  `pmtiles-magic-header`, `dashboard-api-ok`, `dashboard-layer-pmtiles`,
+  `dashboard-widgets-present`, and `dashboard-pmtiles-fingerprint-match` all
+  true. The fingerprint match is the handoff from the PMTiles range proof to
+  the dashboard smoke.
 - Unchecking **Published** and saving hides only the dashboard block; the
   ordinary shared map remains available while the share link is active.
 
@@ -627,6 +647,9 @@ dashboard builder.
 
 - The dashboard panel has no layer choices → register or publish a PMTiles
   layer first.
+- `dashboard-pmtiles-fingerprint-match` is missing or false → the dashboard is
+  not using the exact public archive that passed `range=206`; recapture the
+  public PMTiles URL from the selected layer and rerun the PMTiles proof.
 - Save returns 403 → the signed-in user needs admin access to publish public
   dashboard state.
 - `/p/<token>` has no dashboard block → confirm the dashboard is published and
