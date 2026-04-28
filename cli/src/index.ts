@@ -15,6 +15,7 @@
  *   layers list      List layers from the configured API
  *   query "<prompt>" Run an NL→SQL query against the local/API endpoint
  *   style push       Push the bundled MapLibre style.json to the map service
+ *   operator-loop    Print the first OpenGeo operator loop and proof gates
  */
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -49,6 +50,8 @@ const commands: Record<string, Runner> = {
   layers: cmdLayers,
   query: cmdQuery,
   style: cmdStyle,
+  "operator-loop": cmdOperatorLoop,
+  loop: cmdOperatorLoop,
   help: cmdHelp,
   "--help": cmdHelp,
   "-h": cmdHelp,
@@ -93,6 +96,7 @@ Commands:
   layers list       List layers from the API
   query "<prompt>"  Run an NL→SQL query against the API
   style push        Push bundled MapLibre style to map service
+  operator-loop     Print the first operator loop + proof gates
   help              Show this message
 `;
   deps.stdout(help.trim());
@@ -202,6 +206,53 @@ async function cmdQuery(args: string[], deps: GeoCliDeps): Promise<number> {
   const body = await response.json().catch(() => ({ ok: false, error: "non-JSON response" }));
   deps.stdout(JSON.stringify(body, null, 2));
   return response.ok ? 0 : 1;
+}
+
+async function cmdOperatorLoop(args: string[], deps: GeoCliDeps): Promise<number> {
+  const json = args.includes("--json");
+  const loop = {
+    name: "site-intelligence",
+    purpose:
+      "Turn one project/site package into a shareable, evidence-backed public map and review packet.",
+    commands: [
+      "pnpm geo doctor --target=local --scope=core,pmtiles,ai,drone",
+      "pnpm gauntlet",
+      "pnpm pmtiles:proof",
+      "pnpm dashboard:proof",
+    ],
+    gates: [
+      "Project exists with at least one source layer or flight-derived layer.",
+      "AI extraction/query/style events are visible in the audit log; no black-box edits.",
+      "PMTiles archive proves HTTP byte-range access, not just a saved file path.",
+      "Public dashboard/share route renders constrained project-scoped data only.",
+    ],
+    nextArtifacts: [
+      "share URL",
+      "dashboard proof JSON",
+      "PMTiles proof JSON",
+      "review/audit log screenshot or export",
+    ],
+  };
+
+  if (json) {
+    deps.stdout(JSON.stringify(loop, null, 2));
+    return 0;
+  }
+
+  deps.stdout(`OpenGeo first operator loop: ${loop.name}
+
+Purpose:
+  ${loop.purpose}
+
+Run:
+${loop.commands.map((command) => `  - ${command}`).join("\n")}
+
+Proof gates:
+${loop.gates.map((gate) => `  - ${gate}`).join("\n")}
+
+Artifacts to preserve:
+${loop.nextArtifacts.map((artifact) => `  - ${artifact}`).join("\n")}`);
+  return 0;
 }
 
 async function cmdStyle(args: string[], deps: GeoCliDeps): Promise<number> {

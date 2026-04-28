@@ -109,6 +109,24 @@ describe("geo CLI", () => {
     expect(io.deps.runCommand).toHaveBeenCalledWith("vercel", ["deploy", "--prod"]);
   });
 
+  it("prints the first operator loop as text and JSON", async () => {
+    const textIo = deps(completeEnv);
+
+    const textCode = await runGeo(["operator-loop"], textIo.deps);
+
+    expect(textCode).toBe(0);
+    expect(textIo.stdout.join("\n")).toContain("site-intelligence");
+    expect(textIo.stdout.join("\n")).toContain("pnpm gauntlet");
+
+    const jsonIo = deps(completeEnv);
+    const jsonCode = await runGeo(["loop", "--json"], jsonIo.deps);
+    const loop = JSON.parse(jsonIo.stdout[0]) as { name: string; gates: string[] };
+
+    expect(jsonCode).toBe(0);
+    expect(loop.name).toBe("site-intelligence");
+    expect(loop.gates.some((gate) => gate.includes("PMTiles"))).toBe(true);
+  });
+
   it("unquotes dotenv values", () => {
     expect(__geoCliTest.unquoteEnvValue('"abc"')).toBe("abc");
     expect(__geoCliTest.unquoteEnvValue("abc # comment")).toBe("abc");

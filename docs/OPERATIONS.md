@@ -127,6 +127,13 @@ PMTILES_PROOF_URL="$PUBLIC_PMTILES_URL" pnpm --silent pmtiles:proof -- --json
 
 ### Hosted operator-loop proof checklist
 
+The first canonical operator loop is now available directly from the CLI:
+
+```bash
+pnpm geo operator-loop
+pnpm geo operator-loop --json
+```
+
 Use this checklist when the next gate is a real public production PMTiles URL,
 share token, and dashboard smoke. Do not paste capability URLs, signed query
 strings, share tokens, bearer tokens, or raw `.env.local` values into logs,
