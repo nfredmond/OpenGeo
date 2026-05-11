@@ -52,7 +52,7 @@
     "server-only": "^0.0.1",
     "shapefile": "^0.6.6",
     "superjson": "^2.2.2",
-    "tailwind-merge": "^3.5.0",
+    "tailwind-merge": "^3.6.0",
     "workflow": "^4.2.4",
     "zod": "^4.1.0"
   },
